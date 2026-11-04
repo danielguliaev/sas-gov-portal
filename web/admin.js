@@ -114,35 +114,112 @@ async function adminPage(section) {
 async function adminCodes(area) {
     const [jurisdictions,codes]=await Promise.all([api("/jurisdictions"),api("/codes")]);
     const section=adminSection("Кодексы и нормативные сборники",
-        "Кодекс получает постоянный идентификатор. Наименование должно быть уникально в пределах юрисдикции.");
+        "Создавайте кодексы штата, округа и города. Каждый кодекс получает собственную иерархию и постоянную ссылку.");
+    section.classList.add("admin-codes-page");
+    const header=el("div","admin-section-toolbar");
+    const description=el("div","admin-section-caption");
+    description.append(el("span","admin-eyebrow","РЕЕСТР И СТРУКТУРА"),
+        el("strong","","Управление кодексами"),
+        el("span","muted",codes.length+" "+pluralCode(codes.length)+" в библиотеке"));
+    const open=adminButton("＋ Создать кодекс",()=>{
+        wizard.hidden=!wizard.hidden;
+        open.setAttribute("aria-expanded",String(!wizard.hidden));
+        if(!wizard.hidden) nameField.focus();
+    },"primary");
+    open.id="openCodeWizard";
+    open.setAttribute("aria-controls","newCodeWizard");
+    header.append(description,open);
+    section.append(header);
+
+    const wizard=el("section","code-create-wizard");
+    wizard.id="newCodeWizard";
+    const showForm=new URLSearchParams(location.search).get("new")==="1" || !codes.length;
+    wizard.hidden=!showForm;
+    open.setAttribute("aria-expanded",String(showForm));
+    const wizardTitle=el("div","code-create-heading");
+    wizardTitle.append(el("div","code-create-symbol","§"));
+    const titleText=el("div");
+    titleText.append(el("h3","","Новый кодекс"),
+        el("p","muted","Укажите основные сведения и решите, с какой структуры начать."));
+    wizardTitle.append(titleText);
+    wizard.append(wizardTitle);
+
     const form=adminForm(async()=>{
         const name=nameField.value.trim();
-        if(!name)throw Error("Укажите название кодекса.");
-        const added=await api("/codes",{method:"POST",body:{
-            name,abbreviation:abbr.value.trim(),jurisdiction_id:jurisdiction.value}});
-        notify("Кодекс создан.");
-        // Refresh the globally cached catalog before the new code is opened.
+        const abbreviation=abbr.value.trim();
+        if(!name)throw Error("Введите название кодекса.");
+        if(!jurisdiction.value)throw Error("Выберите юрисдикцию.");
+        const newCode=await api("/codes",{method:"POST",body:{
+            name,abbreviation,jurisdiction_id:jurisdiction.value,
+            hierarchy_template:hierarchy.value}});
         allCodes=await api("/codes");
-        go("/codes/"+added.id);
+        notify("Кодекс «"+name+"» создан. Теперь можно добавлять части, разделы и статьи.");
+        go("/codes/"+newCode.id);
     });
-    const nameField=adminInput("","Например: Civil Code");
+    form.form.classList.add("code-create-form");
+    form.form.id="newCodeForm";
+    form.save.textContent="Создать кодекс";
+    const nameField=adminInput("","Например: Civil Code или Уголовный кодекс");
     nameField.required=true;
-    const abbr=adminInput("","CC");abbr.maxLength=40;
-    const jurisdiction=adminSelect(jurisdictions.map(j=>[j.name,j.id]),"state");
-    form.form.prepend(adminField("Название",nameField),adminField("Обозначение",abbr),
-                      adminField("Юрисдикция",jurisdiction));
-    section.append(form.form);
-    const list=el("div","admin-list");
-    codes.forEach(c=>{
-        const item=el("div","admin-list-row");
-        const names=el("div");names.append(el("strong","",c.name),
-            el("small","",(jurisdictions.find(j=>j.id===c.jurisdiction_id)||{}).name||
-               c.jurisdiction_id));
-        item.append(names,adminLink("Открыть кодекс","/codes/"+c.id));
-        list.append(item);
+    nameField.maxLength=200;
+    nameField.name="name";
+    nameField.id="newCodeName";
+    const abbr=adminInput("","Например: CC, PC");
+    abbr.name="abbreviation"; abbr.maxLength=40;
+    const jurisdiction=adminSelect(jurisdictions.map(j=>[j.name,j.id]),
+        new URLSearchParams(location.search).get("jurisdiction") || "state");
+    jurisdiction.name="jurisdiction_id";
+    const hierarchy=adminSelect([
+        ["Начать со стандартных уровней (Часть → Раздел → Глава → Подраздел)","standard"],
+        ["Начать с пустой структуры и настроить самостоятельно","empty"]
+    ],"standard");
+    hierarchy.name="hierarchy_template";
+    const topFields=el("div","admin-create-grid");
+    topFields.append(adminField("Название кодекса *",nameField),
+        adminField("Краткое обозначение",abbr),
+        adminField("Уровень законодательства *",jurisdiction));
+    form.form.prepend(topFields,adminField("Начальная структура",hierarchy));
+    const hint=el("p","admin-inline-hint",
+        "Выбранные типы уровней можно изменять позже. Статьи разрешено размещать прямо в корне кодекса.");
+    form.form.insertBefore(hint,form.footer);
+    const cancel=adminButton("Отмена",()=>{
+        wizard.hidden=true;
+        open.setAttribute("aria-expanded","false");
     });
-    section.append(list);area.append(section);
+    form.footer.prepend(cancel);
+    wizard.append(form.form);
+    section.append(wizard);
+
+    const listing=el("section","admin-code-register");
+    listing.append(el("h3","","Существующие кодексы"));
+    const codeGrid=el("div","admin-code-grid");
+    if(!codes.length){
+        const blank=el("div","admin-empty-state");
+        blank.append(el("strong","","Пока нет созданных кодексов"),
+            el("p","","Начните с названия и выберите начальную структуру."));
+        codeGrid.append(blank);
+    }
+    codes.forEach(c=>{
+        const item=el("article","admin-code-card");
+        const top=el("div","admin-code-card-header");
+        top.append(el("span","code-acronym",c.abbreviation||"§"),
+            el("span","admin-code-jurisdiction",
+                (jurisdictions.find(j=>j.id===c.jurisdiction_id)||{}).name||c.jurisdiction_id));
+        item.append(top,el("h4","",c.name));
+        const counts=el("p","muted",
+            (c.section_count||0)+" структурных элементов · "+(c.article_count||0)+" статей");
+        item.append(counts);
+        const actions=el("div","admin-actions");
+        actions.append(adminLink("Открыть кодекс","/codes/"+c.id),
+            adminLink("Настроить иерархию","/admin/hierarchy?code="+c.id));
+        item.append(actions);
+        codeGrid.append(item);
+    });
+    listing.append(codeGrid);
+    section.append(listing);
+    area.append(section);
 }
+
 async function adminCategories(area) {
     const section=adminSection("Категории и пользовательские поля",
         "Поля необязательны. Использованные поля и варианты выбора защищены от несовместимых изменений.");
