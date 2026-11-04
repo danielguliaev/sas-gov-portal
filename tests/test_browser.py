@@ -147,6 +147,34 @@ def test_legislation_portal_desktop_and_mobile(tmp_path):
             expect(page.locator(".code-tree-root")).to_contain_text("Подраздел 1 · Общие условия")
             expect(page.locator(".code-tree-root > .root-article-index a")).to_have_count(1)
             page.screenshot(path=str(captures / "law-portal-code-tree.png"), full_page=True)
+
+            # Create a root article with the built-in editor, then move it to a subchapter.
+            page.goto(base_url + "/codes/demo-penal")
+            page.get_by_role("button", name="Создать статью").click()
+            expect(page.locator("#editorDialog")).to_be_visible()
+            page.locator("#articleParentSelect").select_option("")
+            page.locator("#articleForm input[name='number']").fill("85")
+            page.locator("#articleForm input[name='title']").fill("Свободная статья")
+            page.locator("#articleForm textarea[name='text_rich']").fill(
+                "<p>Размещается в корне кодекса.</p>")
+            page.locator("#articleForm button[type='submit']").click()
+            expect(page.locator("#editorDialog")).not_to_be_visible()
+            expect(page.locator(".article-card")).to_contain_text("Свободная статья")
+            page.get_by_role("button", name="Редактировать").click()
+            expect(page.locator("#editorDialog")).to_be_visible()
+            target = page.locator("#articleParentSelect option").filter(
+                has_text="Подраздел 1 · Общие условия")
+            assert target.count() == 1
+            page.locator("#articleParentSelect").select_option(target.get_attribute("value"))
+            page.locator("#articleForm button[type='submit']").click()
+            expect(page.locator("#editorDialog")).not_to_be_visible()
+            expect(page.locator(".article-card")).to_contain_text("Свободная статья")
+            expect(page.locator("#articleIndex .article-index-link")).to_contain_text(
+                "85 · Свободная статья")
+            page.goto(base_url + "/codes/demo-penal")
+            assert not page.locator(".root-article-index").get_by_text(
+                "85 · Свободная статья").count()
+
             page.set_viewport_size({"width":390, "height":820})
             page.screenshot(path=str(captures / "law-portal-hierarchy.png"), full_page=True)
 
