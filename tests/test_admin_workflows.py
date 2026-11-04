@@ -155,3 +155,21 @@ def test_readonly_service_api_has_separate_auth_and_no_private_data(client,heade
     assert pages.json()["items"]
     assert client.post(url("/articles"),json={"code_id":"demo-penal","number":"900"},
                        headers={"Authorization":"Bearer "+key}).status_code==401
+
+
+def test_throttle_returns_429_and_security_headers(client,headers,monkeypatch):
+    monkeypatch.setenv("RATE_LIMIT_PER_MINUTE","2")
+    monkeypatch.setenv("RATE_LIMIT_WINDOW_SECONDS","10")
+    from app.main import _rate_windows
+    _rate_windows.clear()
+    urlpath=url("/codes")
+    assert client.get(urlpath,headers=headers["user"]).status_code==200
+    second=client.get(urlpath,headers=headers["user"])
+    assert second.status_code==200
+    assert second.headers["X-Content-Type-Options"]=="nosniff"
+    assert second.headers["Cache-Control"]=="no-store"
+    third=client.get(urlpath,headers=headers["user"])
+    assert third.status_code==429
+    assert third.json()["error"]["code"]=="RATE_LIMITED"
+    monkeypatch.delenv("RATE_LIMIT_PER_MINUTE")
+    _rate_windows.clear()
