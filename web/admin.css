@@ -219,3 +219,6 @@
   .category-option-form {display:grid;grid-template-columns:1fr;}
   .category-option-form > input {min-width:0;}
 }
+
+.catalog-admin-actions {display:flex;justify-content:flex-end;align-items:center;margin:0 0 16px;}
+.catalog-admin-actions .button {font-size:.84rem;}
