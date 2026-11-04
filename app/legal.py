@@ -1,6 +1,7 @@
 """Catalog, reader and lawyer-facing HTTP API."""
 import base64
 import json
+from html import unescape
 import sqlite3
 
 import bleach
@@ -512,7 +513,8 @@ def create_annotation(article_id: str, body: dict, current=Depends(actor)):
     with transaction() as c:
         rev = one(c, "SELECT * FROM article_revisions WHERE article_id=? AND id=?",
                   (article_id, revision_id))
-        visible = bleach.clean(rev["text_rich"], tags=[], strip=True)
+        # Browser textContent decodes HTML entities; anchors must use the same text.
+        visible = unescape(bleach.clean(rev["text_rich"], tags=[], strip=True))
         if end > len(visible) or visible[start:end] != quote:
             fail(422, "INVALID_ANCHOR", "Выделение не совпадает с текстом данной редакции.")
         annotation_id = uid()
