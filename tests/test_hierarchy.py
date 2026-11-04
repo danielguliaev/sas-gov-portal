@@ -141,3 +141,35 @@ def test_unused_custom_field_can_change_type_and_used_cannot(client, headers):
                                  article["revision_id"]),headers=headers["lawyer"])
     assert previous.status_code == 200
     assert previous.json()["custom_values"][field_id] == opt.json()["id"]
+
+
+def test_exclusive_relation_rule_change_is_transactional(client, headers, admin):
+    h = headers["superadmin"]
+    kind = client.post(route("/relation-types"), headers=h, json={
+        "name":"Экспериментальная связь","source_category":"accusation",
+        "target_category":"punishment_measure","exclusive_target":False
+    })
+    assert kind.status_code == 200, kind.text
+    kind_id = kind.json()["id"]
+    first = admin("951",cats=["accusation"],crime="felony")
+    second = admin("952",cats=["accusation"],crime="felony")
+    punishment = admin("953",sanctions={"fine_min_usd":0,"fine_max_usd":50})
+    def create_link(source):
+        return client.post(route("/relations"), headers=h,json={
+            "type_id":kind_id,"source_id":source["id"],"target_id":punishment["id"]
+        })
+    r1 = create_link(first)
+    r2 = create_link(second)
+    assert r1.status_code == 200,r1.text
+    assert r2.status_code == 200,r2.text
+    conflict = client.patch(route("/relation-types/" + kind_id),headers=h,
+                            json={"exclusive_target":True})
+    assert conflict.status_code == 409, conflict.text
+    disabled = client.post(route("/relations/" + r2.json()["id"] + "/deactivate"),
+                           headers=h,json={"reason":"Тестовое отключение"})
+    assert disabled.status_code == 200,disabled.text
+    updated = client.patch(route("/relation-types/" + kind_id),headers=h,
+                           json={"exclusive_target":True})
+    assert updated.status_code == 200,updated.text
+    repeat = create_link(second)
+    assert repeat.status_code == 409
