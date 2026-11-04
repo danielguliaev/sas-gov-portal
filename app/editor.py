@@ -695,14 +695,43 @@ def restore_batch(body: dict, idempotency_key: str | None = Header(None), curren
             for node_id in preview["node_ids"]:
                 c.execute("UPDATE structure_nodes SET status='active',archive_batch_id=NULL WHERE id=?",
                           (node_id,))
+            # Placement can be changed only for the archived root of a cascade, or
+            # a standalone article. This never changes code identity or a revision.
+            batch = one(c, "SELECT root_node_id FROM archive_batches WHERE id=?",
+                        (body["batch_id"],))
+            new_parent_provided = "new_parent_id" in body
+            new_parent_id = body.get("new_parent_id")
+            if new_parent_provided:
+                if batch["root_node_id"]:
+                    root = one(c, "SELECT * FROM structure_nodes WHERE id=?",
+                               (batch["root_node_id"],))
+                    validate_parent(c, root["code_id"], new_parent_id, root["type_id"])
+                    conflict = maybe(c, """SELECT id FROM structure_nodes WHERE code_id=? AND
+                            type_id=? AND parent_key=? AND number_key=? AND status='active'
+                            AND id<>?""", (root["code_id"], root["type_id"],
+                            new_parent_id or "ROOT", root["number_key"], root["id"]))
+                    if conflict:
+                        fail(409, "RESTORE_NODE_CONFLICT", "В выбранном разделе уже есть элемент с таким номером.",
+                             {"node_id": conflict["id"]})
+                    c.execute("""UPDATE structure_nodes SET parent_id=?,parent_key=? WHERE id=?""",
+                              (new_parent_id, new_parent_id or "ROOT", root["id"]))
+                elif len(preview["article_ids"]) == 1:
+                    target = one(c, "SELECT code_id FROM articles WHERE id=?",
+                                 (preview["article_ids"][0],))
+                    validate_parent(c, target["code_id"], new_parent_id)
+                else:
+                    fail(422, "RESTORE_POSITION", "Нельзя изменить расположение нескольких независимых статей.")
             for article_id in preview["article_ids"]:
                 a = one(c, "SELECT * FROM articles WHERE id=?", (article_id,))
-                if a["parent_id"]:
+                parent_id = new_parent_id if new_parent_provided and not batch["root_node_id"] else a["parent_id"]
+                if parent_id:
                     one(c, "SELECT id FROM structure_nodes WHERE id=? AND status='active'",
-                        (a["parent_id"],))
-                c.execute("UPDATE articles SET status='active',archive_batch_id=NULL,updated_at=? WHERE id=?",
-                          (ts(), article_id))
-            audit(c, current, "restore.batch", "archive_batch", body["batch_id"], {}, preview)
+                        (parent_id,))
+                c.execute("""UPDATE articles SET status='active',parent_id=?,archive_batch_id=NULL,
+                             updated_at=? WHERE id=?""", (parent_id, ts(), article_id))
+            audit(c, current, "restore.batch", "archive_batch", body["batch_id"], {}, {
+                **preview, "new_parent_id": new_parent_id if new_parent_provided else "unchanged"
+            })
             return {"restored_articles": preview["article_ids"],
                     "restored_nodes": preview["node_ids"], "relations_reactivated": 0}
         return idempotent(c, current, "restore", idempotency_key, body, do_restore)
