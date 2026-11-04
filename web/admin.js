@@ -543,6 +543,21 @@ async function adminHierarchy(area) {
             ordering.replaceChildren();
             order.forEach((n,i)=>{
                 const row=el("div","admin-order-row");
+                row.draggable=true;
+                row.title="Перетащите элемент для изменения порядка.";
+                row.addEventListener("dragstart",event=>{
+                    event.dataTransfer.setData("text/plain",String(i));
+                    event.dataTransfer.effectAllowed="move";
+                });
+                row.addEventListener("dragover",event=>event.preventDefault());
+                row.addEventListener("drop",event=>{
+                    event.preventDefault();
+                    const from=Number(event.dataTransfer.getData("text/plain"));
+                    if(!Number.isInteger(from)||from<0||from>=order.length||from===i)return;
+                    const [moved]=order.splice(from,1);
+                    order.splice(i,0,moved);
+                    paint();
+                });
                 row.append(el("span","",n.number+" · "+displayLegalTitle(n.title)));
                 row.append(adminButton("↑",()=>{if(i){[order[i-1],order[i]]=[order[i],order[i-1]];paint();}}));
                 row.append(adminButton("↓",()=>{if(i<order.length-1){[order[i+1],order[i]]=[order[i],order[i+1]];paint();}}));
