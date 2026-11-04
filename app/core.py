@@ -159,9 +159,13 @@ def allrows(c, sql, args=()):
 
 
 def audit(c, current, action, obj_type, obj_id, before=None, after=None):
-    c.execute("INSERT INTO audit_events VALUES(?,?,?,?,?,?,?,?)",
+    # A successful event is committed atomically with the underlying legal change.
+    c.execute("""INSERT INTO audit_events
+              (id,user_id,action,object_type,object_id,before_json,after_json,
+               created_at,source,result,http_status)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
               (uid(), current["id"], action, obj_type, obj_id, dumps(before or {}),
-               dumps(after or {}), ts()))
+               dumps(after or {}), ts(), current.get("audit_source","api"),"success",200))
 
 
 def notify(c, recipient_id, portal_id, event_key, title, object_id):
@@ -171,10 +175,16 @@ def notify(c, recipient_id, portal_id, event_key, title, object_id):
               (uid(), recipient_id, portal_id, event_key, title, object_id, ts()))
 
 
-def actor(authorization: str | None = Header(None), x_demo_user: str | None = Header(None)):
+def actor(request: Request, authorization: str | None = Header(None),
+          x_demo_user: str | None = Header(None)):
+    # Keep request-derived audit context outside client-editable payloads.
+    source = request.method + " " + getattr(request.scope.get("route"),"path",request.url.path)
     if APP_ENV != "production" and AUTH_MODE == "demo":
         if x_demo_user in DEMO_ROLES:
-            return {"id": "demo-" + x_demo_user, "roles": DEMO_ROLES[x_demo_user]}
+            identity = {"id": "demo-" + x_demo_user, "roles": DEMO_ROLES[x_demo_user],
+                        "audit_source": source}
+            request.state.audit_identity = identity
+            return identity
         fail(401, "AUTH_REQUIRED", "Для разработки выберите тестовую роль.")
     if AUTH_MODE != "oidc":
         fail(401, "AUTH_DISABLED", "Аутентификация не настроена.")
@@ -188,7 +198,10 @@ def actor(authorization: str | None = Header(None), x_demo_user: str | None = He
         roles = claims.get(os.getenv("OIDC_ROLES_CLAIM", "roles"), [])
         if not claims.get("sub") or not isinstance(roles, list) or not all(isinstance(x, str) for x in roles):
             raise ValueError("Некорректные claims")
-        return {"id": claims["sub"], "roles": set(roles) | {"user"}}
+        identity = {"id": claims["sub"], "roles": set(roles) | {"user"},
+                    "audit_source": source}
+        request.state.audit_identity = identity
+        return identity
     except Exception:
         fail(401, "INVALID_TOKEN", "Неверный токен доступа.")
 
@@ -432,6 +445,20 @@ def init_database():
                     if statement.upper().startswith("ALTER TABLE"):
                         c.execute(statement.rstrip(";"))
                 c.execute("INSERT INTO schema_migrations(version) VALUES(4)")
+                c.commit()
+            except Exception:
+                c.rollback()
+                raise
+        if not c.execute("SELECT 1 FROM schema_migrations WHERE version=5").fetchone():
+            c.execute("BEGIN IMMEDIATE")
+            try:
+                migration = (base / "005_audit_outcomes.sql").read_text(encoding="utf-8")
+                for part in migration.split(";"):
+                    statement = "\n".join(line for line in part.splitlines()
+                                           if not line.lstrip().startswith("--")).strip()
+                    if statement:
+                        c.execute(statement)
+                c.execute("INSERT INTO schema_migrations(version) VALUES(5)")
                 c.commit()
             except Exception:
                 c.rollback()
