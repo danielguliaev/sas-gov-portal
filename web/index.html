@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#142c47">
+  <meta name="description" content="Законодательная библиотека штата Сан-Андреас — демонстрационный государственный портал">
+  <title>Законодательная библиотека · Сан-Андреас</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script defer src="/static/app.js"></script>
+</head>
+<body>
+  <div class="gov-strip">САН-АНДРЕАС · ГОСУДАРСТВЕННЫЕ ЭЛЕКТРОННЫЕ РЕСУРСЫ</div>
+  <header class="site-header">
+    <div class="header-inner">
+      <button id="menuToggle" class="icon-button menu-toggle" aria-label="Открыть навигацию">☰</button>
+      <a class="brand" href="/" data-link>
+        <span class="seal" aria-hidden="true">SA</span>
+        <span class="brand-text"><strong>Штат Сан-Андреас</strong><small>Законодательная библиотека</small></span>
+      </a>
+      <div class="header-actions">
+        <label class="header-label" for="roleSelect">Тестовый вход</label>
+        <select id="roleSelect" aria-label="Тестовая роль">
+          <option value="">Выбрать роль</option>
+          <option value="user">Читатель</option>
+          <option value="lawyer">Юрист</option>
+          <option value="superadmin">Суперадминистратор</option>
+          <option value="editor">Редактор библиотеки</option>
+          <option value="publisher">Издатель портала</option>
+          <option value="legislator">Законодатель</option>
+        </select>
+        <button id="notifyButton" class="icon-button" aria-label="Уведомления" title="Уведомления">♧</button>
+      </div>
+    </div>
+  </header>
+  <div class="demo-banner" role="note">Демонстрационная система ролевого мира. Примеры статей и документов не являются действующими правовыми нормами.</div>
+  <div class="layout" id="layout">
+    <aside class="sidebar" id="sidebar" aria-label="Навигация по законодательству">
+      <div class="sidebar-heading">ПРАВОВЫЕ РЕСУРСЫ</div>
+      <nav id="globalNav" aria-label="Основная навигация"></nav>
+      <div id="codeNav"></div>
+      <div class="sidebar-bottom">
+        <label for="fontScale">Размер шрифта чтения</label>
+        <input id="fontScale" type="range" min="75" max="175" step="5" value="100">
+        <output id="fontOutput" for="fontScale">100%</output>
+      </div>
+    </aside>
+    <main id="main" class="main" tabindex="-1" aria-live="polite">
+      <section class="loading-page">Загрузка правовых ресурсов…</section>
+    </main>
+  </div>
+  <dialog id="editorDialog" aria-labelledby="editorTitle">
+    <div class="dialog-header"><h2 id="editorTitle">Редактор статьи</h2><button id="closeEditor" class="icon-button" type="button" aria-label="Закрыть редактор">×</button></div>
+    <form id="articleForm" novalidate>
+      <div class="form-grid">
+        <label>Юридический номер<input name="number" required maxlength="100"></label>
+        <label>Заголовок<input name="title" required maxlength="300"></label>
+      </div>
+      <label>Текст статьи (разрешённая HTML-разметка)<textarea name="text_rich" rows="12"></textarea></label>
+      <fieldset><legend>Юридические категории</legend><div id="editorCategories" class="checks"></div></fieldset>
+      <label>Класс обвинения<select name="criminal_class"><option value="">Не указано</option><option value="felony">Felony</option><option value="misdemeanor">Misdemeanor</option><option value="infraction">Infraction</option></select></label>
+      <fieldset><legend>Санкции (null — не указано; 0 — установленный ноль)</legend>
+        <div class="form-grid">
+          <label>Лишение свободы: от, мес.<input type="number" min="0" step="1" name="prison_min_months" placeholder="Не указано"></label>
+          <label>Лишение свободы: до, мес.<input type="number" min="0" step="1" name="prison_max_months" placeholder="Не указано"></label>
+          <label>Штраф: от, USD<input type="number" min="0" step="1" name="fine_min_usd" placeholder="Не указано"></label>
+          <label>Штраф: до, USD<input type="number" min="0" step="1" name="fine_max_usd" placeholder="Не указано"></label>
+        </div>
+      </fieldset>
+      <label>Основание изменения<input name="reason" maxlength="1000" placeholder="Внутренняя редакционная правка"></label>
+      <div class="dialog-footer"><span id="editorStatus" role="status"></span>
+        <button type="button" class="button ghost" id="reacquireLock" hidden>Получить блокировку заново</button>
+        <button type="submit" class="button primary" id="saveEditor">Сохранить редакцию</button>
+      </div>
+    </form>
+  </dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
