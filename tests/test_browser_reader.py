@@ -110,9 +110,14 @@ def test_reader_retry_and_deep_article_link(tmp_path):
             # to restore its own history position without changing the URL.
             page.goto(base+"/codes/demo-penal/nodes/demo-intro")
             # Session restoration may prefetch all 15 cards; both 12 and 15 are valid.
-            page.wait_for_function("document.querySelectorAll('.article-card').length >= 12")
+            expect(page.locator(".article-card").nth(11)).to_be_visible(timeout=15000)
             page.evaluate("window.scrollTo(0, 1800)")
-            page.wait_for_function("window.scrollY >= 1300")
+            for _ in range(100):
+                if page.evaluate("window.scrollY") >= 1300:
+                    break
+                time.sleep(.05)
+            else:
+                raise AssertionError("Reader did not reach target scroll position")
             saved=page.evaluate("window.scrollY")
             # Avoid Playwright's implicit scroll-to-element: a real click on a
             # visible card must preserve the reader's last viewport position.
@@ -122,8 +127,12 @@ def test_reader_retry_and_deep_article_link(tmp_path):
             expect(page.locator("#card-"+created[3])).to_be_visible()
             page.go_back(wait_until="domcontentloaded")
             expect(page).to_have_url(base+"/codes/demo-penal/nodes/demo-intro")
-            page.wait_for_function("""(saved) =>
-                Math.abs(window.scrollY - saved) < 70""",arg=saved,timeout=15000)
+            for _ in range(200):
+                if abs(page.evaluate("window.scrollY")-saved)<70:
+                    break
+                time.sleep(.05)
+            else:
+                raise AssertionError("Back navigation did not restore scroll")
             page.go_forward(wait_until="domcontentloaded")
             expect(page).to_have_url(base+"/articles/"+created[3])
             expect(page.locator("#card-"+created[3])).to_be_visible()
