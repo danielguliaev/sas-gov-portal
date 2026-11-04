@@ -314,14 +314,44 @@ async function adminRelations(area) {
     relationForm.form.prepend(adminField("Тип связи",kind),from.wrap,to.wrap);
     section.append(el("h3","","Установить связь"),relationForm.form);
     const active=el("div","admin-list");
-    section.append(el("h3","","Связи выбранной статьи"),active);
+    const candidates=el("div","admin-list");
+    section.append(el("h3","","Связи выбранной статьи"),active,
+        el("h3","","Ранее отключённые связи · выборочное восстановление"),candidates);
     const currentQuery=new URLSearchParams(location.search).get("article")||"";
     const id=adminInput(currentQuery,"ID статьи");
     const btn=adminButton("Показать связи",drawActiveRelations);
     section.append(adminField("ID статьи для просмотра и снятия связей",id),btn);
     async function drawActiveRelations(){
         active.replaceChildren();
+        candidates.replaceChildren();
         if(!id.value.trim())return;
+        const suspended=await api("/articles/"+encodeURIComponent(id.value.trim())+
+            "/relations/restore-candidates");
+        if(!suspended.length)candidates.append(adminInfo("Отключённых связей у статьи нет."));
+        suspended.forEach(link=>{
+            const card=el("div","admin-subpanel");
+            card.append(el("strong","",link.type_name),
+                el("p","",displayLegalTitle(link.source_label)+" → "+displayLegalTitle(link.target_label)));
+            const references=el("div","admin-actions");
+            references.append(adminLink("Исходная статья","/articles/"+link.source_id),
+                adminLink("Целевая статья","/articles/"+link.target_id));
+            card.append(references);
+            if(link.conflicts.length){
+                card.append(el("p","notice",
+                    "Восстановление заблокировано: "+link.conflicts.join(" ")));
+            }else{
+                const action=adminButton("Восстановить эту связь",()=>adminSafe(async()=>{
+                    if(!confirm("Восстановить только выбранную связь? Будут созданы новые редакции обеих статей."))return;
+                    await api("/relations/"+link.relation_id+"/restore",{method:"POST",
+                        headers:{"Idempotency-Key":crypto.randomUUID()},
+                        body:{confirm:true,preview_hash:link.preview_hash}});
+                    notify("Выбранная юридическая связь восстановлена.");
+                    await drawActiveRelations();
+                }),"primary");
+                card.append(action);
+            }
+            candidates.append(card);
+        });
         const r=await api("/articles/"+encodeURIComponent(id.value.trim())+"/relations");
         if(!r.items.length)active.append(adminInfo("У этой статьи нет действующих связей."));
         r.items.forEach(rel=>{
