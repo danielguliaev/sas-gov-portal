@@ -620,9 +620,18 @@ async function loadNext() {
         });
         state.cursor = result.next_cursor;
         state.hasMore = result.has_more;
+        state.loaded += result.items.length;
+        if (state.count) state.count.textContent = "Загружено статей: " + state.loaded;
         state.loading = false;
         state.status.replaceChildren();
-        if (!state.hasMore && !state.cards.children.length) state.status.append(el("p", "empty", "Статей пока нет."));
+        if (!state.hasMore && !state.cards.children.length) {
+            state.status.append(el("p", "reader-empty", state.emptyMessage || "Статей пока нет."));
+        } else if (state.hasMore) {
+            const more = el("button", "button ghost", "Загрузить ещё статьи");
+            more.type = "button";
+            more.onclick = () => loadNext();
+            state.status.append(more);
+        }
         if (state.targetId) {
             const target = document.getElementById("card-" + state.targetId);
             if (target) {
