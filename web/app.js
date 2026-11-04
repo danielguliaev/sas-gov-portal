@@ -1467,7 +1467,8 @@ function collectEditorBody() {
         sanctions[key]=values[key]===""?null:Number(values[key]);
     });
     return {number:values.number,title:values.title,text_rich:values.text_rich,categories,
-        criminal_class:values.criminal_class||null,sanctions,reason:values.reason||"Редакторская правка"};
+        parent_id:values.parent_id || null,criminal_class:values.criminal_class||null,
+        sanctions,reason:values.reason||"Редакторская правка"};
 }
 async function openEditor(article, codeId, nodeId) {
     if(!isAdmin())return;
@@ -1484,6 +1485,22 @@ async function openEditor(article, codeId, nodeId) {
         editorForm.elements.title.value=article?article.title:"";
         editorForm.elements.text_rich.value=article?article.text_rich:"";
         editorForm.elements.criminal_class.value=article?article.criminal_class||"":"";
+        const hierarchy=treeData && treeData.code.id===codeId ?
+            treeData : await api("/codes/"+codeId+"/tree");
+        const locationSelect=document.getElementById("articleParentSelect");
+        locationSelect.replaceChildren(new Option("Непосредственно в кодексе (без раздела)", ""));
+        const labels=new Map();
+        function nodeLabel(n) {
+            if(labels.has(n.id))return labels.get(n.id);
+            const parent=n.parent_id&&hierarchy.nodes.find(node=>node.id===n.parent_id);
+            const type=hierarchy.types.find(t=>t.id===n.type_id);
+            const own=(type?type.name+" ":"")+n.number+" · "+displayLegalTitle(n.title);
+            const label=parent?nodeLabel(parent)+" / "+own:own;
+            labels.set(n.id,label);
+            return label;
+        }
+        hierarchy.nodes.forEach(n=>locationSelect.append(new Option(nodeLabel(n),n.id)));
+        locationSelect.value=article?article.parent_id||"":nodeId||"";
         const data=article&&article.sanctions||{};
         Object.keys(data).forEach(key=>{editorForm.elements[key].value=data[key]===null?"":data[key];});
         document.getElementById("editorTitle").textContent=article?"Редактирование статьи "+article.number:"Создание статьи";
@@ -1524,6 +1541,8 @@ editorForm.addEventListener("submit",async event=>{
     if(!editorState)return;
     const state=editorState;
     const body=collectEditorBody();
+    const isNew=!state.article;
+    const oldParent=state.article ? state.article.parent_id : state.nodeId;
     try{
         let saved;
         if(state.article) {
@@ -1533,16 +1552,27 @@ editorForm.addEventListener("submit",async event=>{
             state.baseRevision=saved.revision_id;
             state.article=saved;
         } else {
-            saved=await api("/articles",{method:"POST",body:Object.assign(body,{code_id:state.codeId,parent_id:state.nodeId})});
+            saved=await api("/articles",{method:"POST",body:Object.assign(body,{code_id:state.codeId})});
             state.article=saved;state.baseRevision=saved.revision_id;
-            const lock=await api("/articles/"+saved.id+"/edit-lock",{method:"POST",body:{editor_session_id:state.sessionId}});
-            state.token=lock.token;
-            heartbeatTimer=setInterval(()=>heartbeatEditor(state),60000);
         }
         editorDirty=false;
+        if(isNew || oldParent !== saved.parent_id) {
+            await exitEditor();
+            notify(isNew ? "Статья создана." : "Статья перемещена в выбранный раздел.");
+            go("/articles/"+saved.id);
+            return;
+        }
         const previous=document.getElementById("card-"+saved.id);
-        if(previous)previous.replaceWith(createArticleCard(saved));
-        else if(reading&&reading.cards)reading.cards.append(createArticleCard(saved));
+        const updated=createArticleCard(saved);
+        if(previous) {
+            if(activeObserver)activeObserver.unobserve(previous);
+            previous.replaceWith(updated);
+            if(activeObserver)activeObserver.observe(updated);
+        }
+        if(reading && treeData) {
+            const code=allCodes.find(c=>c.id===reading.codeId);
+            if(code)renderCodeNav(code,reading.nodeId,false);
+        }
         document.getElementById("editorStatus").textContent="Редакция сохранена.";
         notify("Редакция успешно опубликована.");
     }catch(e){document.getElementById("editorStatus").textContent=e.message;
