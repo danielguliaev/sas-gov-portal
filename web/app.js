@@ -512,6 +512,7 @@ function renderCodeNav(code, selectedNode, directTarget) {
     if (!selectedNode && location.pathname === header.getAttribute("href")) header.classList.add("active");
     codeNav.append(header);
     const root = el("div", "code-tree-root");
+    const pendingIndexes = [];
     const state = treeStorage(code.id);
     const ancestors = new Set();
     if (selectedNode) {
@@ -563,7 +564,7 @@ function renderCodeNav(code, selectedNode, directTarget) {
             const current = el("div", "article-index");
             current.id = "articleIndex";
             branch.append(current);
-            appendArticleIndex(current, "/nodes/" + n.id + "/article-index");
+            pendingIndexes.push([current, "/nodes/" + n.id + "/article-index"]);
         }
         if (children.length || selected) wrap.append(branch);
         parentContainer.append(wrap);
@@ -573,6 +574,7 @@ function renderCodeNav(code, selectedNode, directTarget) {
     if (!selectedNode) topLevelArticles.id = "articleIndex";
     root.append(topLevelArticles);
     codeNav.append(root);
+    pendingIndexes.forEach(([container,endpoint]) => appendArticleIndex(container,endpoint));
     appendArticleIndex(topLevelArticles, "/codes/" + code.id + "/root/article-index");
 }
 function highlightSidebar(articleId) {
