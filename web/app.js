@@ -1474,6 +1474,110 @@ async function renderRoute(path, options) {
             Number(sessionStorage.getItem("sas-scroll:" + pathname) || 0));
     } else if (!reading) window.scrollTo(0, 0);
 }
+let editorCategoryDefinitions = [];
+let editorCustomValues = {};
+let visualEditorActive = false;
+const visualEditor = document.getElementById("richEditor");
+const rawEditor = editorForm.elements.text_rich;
+function switchEditorMode(toVisual) {
+    if(toVisual === visualEditorActive)return;
+    if(toVisual) visualEditor.innerHTML = rawEditor.value;
+    else rawEditor.value = visualEditor.innerHTML;
+    visualEditorActive = toVisual;
+    document.getElementById("visualEditorRegion").hidden = !toVisual;
+    document.getElementById("rawTextLabel").hidden = toVisual;
+    document.getElementById("toggleRichEditor").textContent =
+        toVisual ? "Редактировать HTML" : "Визуальный редактор";
+    document.getElementById("editorModeStatus").textContent =
+        toVisual ? "Визуальное форматирование" : "Режим исходной разметки HTML";
+}
+document.getElementById("toggleRichEditor").onclick = () => switchEditorMode(!visualEditorActive);
+document.querySelectorAll("[data-format]").forEach(button => {
+    button.addEventListener("mousedown", event => event.preventDefault());
+    button.addEventListener("click", () => {
+        visualEditor.focus();
+        document.execCommand(button.dataset.format, false, button.dataset.value || null);
+        editorDirty = true;
+    });
+});
+function captureEditorCustomValues() {
+    const values={};
+    document.querySelectorAll("#editorCustomFields [data-custom-field]").forEach(row=>{
+        const id=row.dataset.customField, kind=row.dataset.kind;
+        let value=null;
+        if(kind==="range"){
+            const [lo,hi]=[row.querySelector("[data-bound=lo]"),row.querySelector("[data-bound=hi]")];
+            if(lo.value.trim()!=="" && hi.value.trim()!=="")value=[Number(lo.value),Number(hi.value)];
+        }else{
+            const control=row.querySelector("[data-custom-control]");
+            if(kind==="boolean") value=control.value===""?null:control.value==="true";
+            else if(kind==="number") value=control.value.trim()===""?null:Number(control.value);
+            else if(kind==="choice" && control.multiple) {
+                value=Array.from(control.selectedOptions).map(option=>option.value);
+                if(!value.length)value=null;
+            }else value=control.value.trim()===""?null:control.value;
+        }
+        if(value!==null)values[id]=value;
+    });
+    return values;
+}
+function renderEditorCustomFields() {
+    const area=document.getElementById("editorCustomFields");
+    const saved={...editorCustomValues,...captureEditorCustomValues()};
+    editorCustomValues=saved;
+    area.replaceChildren();
+    const selected=new Set([...document.querySelectorAll("#editorCategories input:checked")].map(x=>x.value));
+    editorCategoryDefinitions.filter(c=>selected.has(c.id)).forEach(cat=>{
+        (cat.fields||[]).forEach(field=>{
+            const value=saved[field.id];
+            const row=el("div","custom-field");
+            row.dataset.customField=field.id;
+            row.dataset.kind=field.field_type;
+            row.append(el("label","custom-field-title",cat.name+" · "+field.name));
+            let control;
+            if(field.field_type==="range"){
+                const range=el("div","form-grid");
+                ["lo","hi"].forEach((bound,i)=>{
+                    const input=el("input");input.type="number";input.step="any";
+                    input.dataset.bound=bound;
+                    input.placeholder=i?"Максимум":"Минимум";
+                    if(Array.isArray(value) && value[i]!==undefined)input.value=value[i];
+                    range.append(input);
+                });
+                row.append(range);
+            }else if(field.field_type==="choice"){
+                const options=(field.options||[]).filter(o=>o.active ||
+                    (Array.isArray(value)?value.includes(o.id):value===o.id));
+                control=el("select");control.multiple=field.selection_mode==="multiple";
+                if(!control.multiple)control.append(new Option("Не указано",""));
+                options.forEach(o=>{
+                    const option=new Option(o.name,o.id);
+                    option.selected=Array.isArray(value)?value.includes(o.id):value===o.id;
+                    control.append(option);
+                });
+                if(control.multiple)control.size=Math.min(Math.max(options.length,2),5);
+            }else if(field.field_type==="boolean"){
+                control=adminSelect([["Да","true"],["Нет","false"]],
+                    value===true?"true":value===false?"false":"","Не указано");
+            }else if(field.field_type==="rich_text"){
+                control=el("textarea");control.rows=3;control.value=value||"";
+            }else{
+                control=el("input");control.type=field.field_type==="number"?"number":"text";
+                if(field.field_type==="number")control.step="any";
+                control.value=value??"";
+            }
+            if(control){
+                control.dataset.customControl="";
+                control.setAttribute("aria-label",cat.name+" · "+field.name);
+                row.append(control);
+            }
+            area.append(row);
+        });
+    });
+    if(!area.children.length)area.append(el("p","muted",
+        "Выберите категорию с дополнительными полями; все такие поля необязательны."));
+}
+
 function collectEditorBody() {
     const values=Object.fromEntries(new FormData(editorForm));
     const categories=Array.from(document.querySelectorAll('#editorCategories input:checked')).map(x=>x.value);
@@ -1481,7 +1585,9 @@ function collectEditorBody() {
     ["prison_min_months","prison_max_months","fine_min_usd","fine_max_usd"].forEach(key=>{
         sanctions[key]=values[key]===""?null:Number(values[key]);
     });
-    return {number:values.number,title:values.title,text_rich:values.text_rich,categories,
+    const custom_values=captureEditorCustomValues();
+    const rich=visualEditorActive ? visualEditor.innerHTML : values.text_rich;
+    return {number:values.number,title:values.title,text_rich:rich,categories,custom_values,
         parent_id:values.parent_id || null,criminal_class:values.criminal_class||null,
         sanctions,reason:values.reason||"Редакторская правка"};
 }
@@ -1498,7 +1604,10 @@ async function openEditor(article, codeId, nodeId) {
         editorForm.reset();
         editorForm.elements.number.value=article?article.number:"";
         editorForm.elements.title.value=article?article.title:"";
+        switchEditorMode(false);
         editorForm.elements.text_rich.value=article?article.text_rich:"";
+        visualEditor.innerHTML=article?article.text_rich:"";
+        editorCustomValues={...(article&&article.custom_values||{})};
         editorForm.elements.criminal_class.value=article?article.criminal_class||"":"";
         const hierarchy=treeData && treeData.code.id===codeId ?
             treeData : await api("/codes/"+codeId+"/tree");
@@ -1524,12 +1633,16 @@ async function openEditor(article, codeId, nodeId) {
         document.getElementById("reacquireLock").hidden=true;
         const categories=await api("/categories?code_id="+encodeURIComponent(codeId));
         const box=document.getElementById("editorCategories");box.replaceChildren();
+        editorCategoryDefinitions=categories;
         categories.forEach(cat=>{
             const label=el("label");
             const check=el("input");check.type="checkbox";check.name="category";check.value=cat.id;
             check.checked=Boolean(article&&article.categories&&article.categories.includes(cat.id));
+            check.addEventListener("change",renderEditorCustomFields);
             label.append(check,document.createTextNode(cat.name));box.append(label);
         });
+        document.getElementById("editorCustomFields").replaceChildren();
+        renderEditorCustomFields();
         dialog.showModal();
         if(state.token)heartbeatTimer=setInterval(()=>heartbeatEditor(state),60000);
     }catch(e){notify(e.message);}
