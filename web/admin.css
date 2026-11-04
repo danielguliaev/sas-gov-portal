@@ -222,3 +222,20 @@
 
 .catalog-admin-actions {display:flex;justify-content:flex-end;align-items:center;margin:0 0 16px;}
 .catalog-admin-actions .button {font-size:.84rem;}
+
+/* Optional publication provenance for created and existing code records. */
+.code-publication-fields {border-top:1px solid #e4e9ed;margin-top:5px;padding:14px 0 0;}
+.admin-panel .code-publication-fields > summary {font-size:.81rem;}
+.code-publication-fields .admin-create-grid {margin-top:14px;}
+.code-metadata-editor {border-top:1px solid #edf0f3;margin-top:16px;padding-top:10px;}
+.admin-panel .code-metadata-editor > summary {font-size:.74rem;}
+.code-metadata-editor .admin-form {border:0;background:#f7fafb;margin:9px 0 0;padding:13px;}
+.code-metadata-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px;}
+.code-metadata-grid .admin-field {min-width:0;}
+.code-metadata-grid .admin-field:last-child {grid-column:1/-1;}
+.code-provenance {background:#f8fafb;border-left:3px solid #c7ae7c;
+  padding:9px 13px;color:#657f90;font-size:.79rem;margin:10px 0 20px;line-height:1.6;}
+@media(max-width:720px) {
+  .code-metadata-grid {grid-template-columns:1fr;}
+  .code-metadata-grid .admin-field:last-child {grid-column:auto;}
+}
