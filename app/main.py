@@ -10,7 +10,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from app.core import APP_ENV, error_handler, init_database, seed_demo
-from app import legal, editor, portals, hierarchy, integration
+from app import legal, editor, portals, hierarchy, integration, auth
 
 
 @asynccontextmanager
@@ -80,6 +80,7 @@ app.include_router(editor.router, prefix="/api/v1")
 app.include_router(hierarchy.router, prefix="/api/v1")
 app.include_router(portals.router, prefix="/api/v1")
 app.include_router(integration.router, prefix="/api/v1")
+app.include_router(auth.router, prefix="/api/v1")
 
 WEB = Path(__file__).resolve().parent.parent / "web"
 app.mount("/static", StaticFiles(directory=WEB), name="static")
