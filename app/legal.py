@@ -74,12 +74,13 @@ def library_overview(current=Depends(actor)):
 
 
 @router.get("/codes/{code_id}/tree")
-def code_tree(code_id: str, current=Depends(actor)):
+def code_tree(code_id: str, include_nodes: bool = True, current=Depends(actor)):
     with read_db() as c:
         code = one(c, "SELECT * FROM codes WHERE id=?", (code_id,))
         types = allrows(c, "SELECT * FROM hierarchy_types WHERE code_id=? AND active=1 ORDER BY level_order,id",
                         (code_id,))
-        nodes = allrows(c, "SELECT * FROM structure_nodes WHERE code_id=? AND status='active'", (code_id,))
+        nodes = (allrows(c, "SELECT * FROM structure_nodes WHERE code_id=? AND status='active'",
+                         (code_id,)) if include_nodes else [])
         by_type = {t["id"]: t for t in types}
         modes = {r["parent_key"]: r["mode"] for r in allrows(c, "SELECT * FROM sort_modes")}
         def sort_node(n):
@@ -121,6 +122,29 @@ def _paginate(c, code_id, parent_id, limit, cursor, current):
         next_cursor = base64.urlsafe_b64encode(dumps(payload).encode()).decode().rstrip("=")
     return {"items": [present_article(c, r, current) for r in rows],
             "has_more": has_more, "next_cursor": next_cursor}
+
+
+@router.get("/codes/{code_id}/node-context")
+def node_context(code_id: str, node_id: str, current=Depends(actor)):
+    """Return only the selected node and its ancestors for breadcrumb/deep navigation."""
+    with read_db() as c:
+        one(c, "SELECT id FROM codes WHERE id=? AND status='active'",(code_id,))
+        selected=one(c, """SELECT * FROM structure_nodes WHERE id=? AND code_id=?
+                           AND status='active'""",(node_id,code_id),
+                     "Структурный элемент не найден.")
+        chain=[]
+        seen=set()
+        cursor=selected
+        while cursor:
+            if cursor["id"] in seen or len(chain)>=100:
+                fail(409,"INVALID_HIERARCHY","Обнаружен цикл в структуре кодекса.")
+            seen.add(cursor["id"])
+            chain.append(cursor)
+            cursor=(one(c,"""SELECT * FROM structure_nodes WHERE id=? AND code_id=?
+                                AND status='active'""",(cursor["parent_id"],code_id),
+                        "Недоступный родительский элемент.") if cursor["parent_id"] else None)
+        chain.reverse()
+        return {"node":selected,"ancestors":chain}
 
 
 @router.get("/codes/{code_id}/structure-index")
