@@ -1202,6 +1202,7 @@ async function revisionsPage(id) {
                 details.append(el("summary","","Юридическое состояние этой редакции"));
                 const pre=el("pre","admin-json");
                 pre.textContent=JSON.stringify({
+                    historical_labels:data.display_snapshot||{},
                     categories:data.categories_json,
                     custom_values:data.custom_values,
                     criminal_class:data.criminal_class,
