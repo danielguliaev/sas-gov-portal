@@ -106,6 +106,11 @@
         <label>Юридический номер<input name="number" required maxlength="100"></label>
         <label>Заголовок<input name="title" required maxlength="300"></label>
       </div>
+      <label>Расположение статьи в кодексе
+        <select name="parent_id" id="articleParentSelect" aria-label="Структурный раздел или корень кодекса">
+          <option value="">Непосредственно в кодексе (без раздела)</option>
+        </select>
+      </label>
       <label>Текст статьи (разрешённая HTML-разметка)<textarea name="text_rich" rows="12"></textarea></label>
       <fieldset><legend>Юридические категории</legend><div id="editorCategories" class="checks"></div></fieldset>
       <label>Класс обвинения<select name="criminal_class"><option value="">Не указано</option><option value="felony">Felony</option><option value="misdemeanor">Misdemeanor</option><option value="infraction">Infraction</option></select></label>
