@@ -239,3 +239,21 @@
   .code-metadata-grid {grid-template-columns:1fr;}
   .code-metadata-grid .admin-field:last-child {grid-column:auto;}
 }
+
+/* Adapt to the actual available work-area width, not only the viewport:
+   the government sidebar takes substantial room on 900px windows. */
+.admin-categories-page { container-type: inline-size; }
+@container (max-width: 760px) {
+  .category-workbench { grid-template-columns: minmax(0,1fr); min-height:0; }
+  .category-sidebar { position:static; }
+  .category-picker {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));max-height:240px;}
+  .category-field-grid {grid-template-columns:repeat(2,minmax(0,1fr));}
+  .category-detail {padding:18px;}
+  .category-option-row {grid-template-columns:minmax(0,2fr) auto auto;}
+}
+@container (max-width: 440px) {
+  .category-picker {grid-template-columns:minmax(0,1fr);}
+  .category-field-grid {grid-template-columns:minmax(0,1fr);}
+  .category-option-row {grid-template-columns:1fr auto;}
+  .category-option-row > .button {grid-column:1/-1;justify-self:start;}
+}
