@@ -7,7 +7,7 @@ import sqlite3
 import bleach
 from fastapi import APIRouter, Depends, Query
 from app.core import (
-    actor, audit, clean, conn, dumps, fail, loads, maybe, one, allrows,
+    actor, audit, clean, conn, dumps, fail, loads, maybe, one, allrows, notify,
     read_db, require, uid, ts, transaction, present_article, CATEGORIES
 )
 
@@ -468,7 +468,19 @@ def notifications(portal_id: str = "library", current=Depends(actor)):
     # The library's notification center must never aggregate other agency portals.
     if portal_id != "library":
         fail(403, "PORTAL_SCOPE", "Центр уведомлений относится только к правовой библиотеке.")
-    with read_db() as c:
+    # An external IAM owns the account directory: at publication time the library
+    # cannot enumerate every lawyer. Materialize official revision notices when a
+    # lawyer opens the center. Stable event keys make this idempotent and preserve
+    # individual read receipts without cross-portal fan-out.
+    with transaction() as c:
+        if current["roles"].intersection({"lawyer","superadmin"}):
+            official = allrows(c, """SELECT id,article_id FROM article_revisions
+                WHERE json_extract(source_json,'$.publication_id') IS NOT NULL
+                ORDER BY published_at DESC,id DESC LIMIT 100""")
+            for revision in official:
+                notify(c,current["id"],"library","official:"+revision["id"],
+                       "Опубликовано официальное изменение законодательства",
+                       revision["article_id"])
         return allrows(c, """SELECT * FROM notifications WHERE recipient_id=? AND portal_id='library'
                              ORDER BY created_at DESC LIMIT 100""", (current["id"],))
 
