@@ -203,11 +203,14 @@ def test_legislation_portal_desktop_and_mobile(tmp_path):
             page.get_by_role("button", name="Просмотреть восстановление").first.click()
             expect(page.locator(".admin-preview")).to_contain_text("Восстановление")
             page.get_by_role("button", name="Восстановить").click()
+            # The restore handler is async. Wait for the server state, not a heading
+            # that was already present before the restore request completed.
+            page.wait_for_function("""async (articleId) => {
+                const response = await fetch('/api/v1/articles/' + articleId,
+                    {headers:{'X-Demo-User':'lawyer'}});
+                return response.ok && (await response.json()).status === 'active';
+            }""", arg=root_article["id"], timeout=15000)
             expect(page.locator(".admin-panel")).to_contain_text("Архивирование и восстановление")
-            response = page.request.get(base_url + "/api/v1/articles/" + root_article["id"],
-                                        headers={"X-Demo-User": "lawyer"})
-            assert response.status == 200, response.text()
-            assert response.json()["status"] == "active"
 
             # Lawyer-only search exposes the complete filter surface.
             page.locator("#roleSelect").select_option("lawyer")
