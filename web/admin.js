@@ -389,8 +389,6 @@ async function adminArchive(area) {
             "Статья "+a.number+" · "+displayLegalTitle(a.title),"/articles/"+a.id)));
         item.archived_nodes.forEach(n=>details.append(el("p","",n.number+" · "+displayLegalTitle(n.title))));
         card.append(details);
-        const place=adminSelect(allCodes.map(c=>[c.name,c.id]),null,"Оставить исходное расположение");
-        // Placement is edited only in the preview for a safely confirmed move.
         const previewBtn=adminButton("Просмотреть восстановление",()=>adminSafe(async()=>{
             const result=await api("/archive-batches/"+item.id+"/preview");
             const summary=el("div","admin-preview");
@@ -407,6 +405,19 @@ async function adminArchive(area) {
                     summary.append(row);
                 });
             }
+            const ownerCode=item.archived_articles[0]?.code_id||
+                item.archived_nodes[0]?.code_id||"";
+            const destination=adminSelect([], "__unchanged");
+            destination.append(new Option("Оставить исходное расположение","__unchanged"),
+                new Option("Переместить в корень кодекса","__root"));
+            if(ownerCode) {
+                const hierarchy=await api("/codes/"+ownerCode+"/tree");
+                const ownArchived=new Set(item.archived_nodes.map(n=>n.id));
+                hierarchy.nodes.filter(n=>!ownArchived.has(n.id)).forEach(n=>
+                    destination.append(new Option(n.number+" · "+displayLegalTitle(n.title),n.id)));
+            }
+            if(result.node_ids.length||result.article_ids.length===1)
+                summary.append(adminField("Новое расположение восстанавливаемого объекта",destination));
             const agree=el("input");agree.type="checkbox";
             if(result.conflicts.length)summary.append(adminField(
                 "Отдельно подтверждаю архивирование конфликтующих действующих статей",agree));
@@ -415,10 +426,12 @@ async function adminArchive(area) {
                     throw Error("Подтвердите замену конфликтующих действующих статей.");
                 }
                 if(!confirm("Восстановить указанные архивные объекты?"))return;
+                const body={batch_id:item.id,preview_hash:result.preview_hash,
+                    confirm:true,confirm_swap:!!agree.checked};
+                if(destination.value!=="__unchanged")
+                    body.new_parent_id=destination.value==="__root"?null:destination.value;
                 await api("/restore-batches",{method:"POST",headers:{
-                    "Idempotency-Key":crypto.randomUUID()},body:{
-                    batch_id:item.id,preview_hash:result.preview_hash,
-                    confirm:true,confirm_swap:!!agree.checked}});
+                    "Idempotency-Key":crypto.randomUUID()},body});
                 notify("Объекты восстановлены.");
                 go("/admin/archive");
             }),"primary");
