@@ -211,7 +211,8 @@ function refreshGlobalNav() {
         navItem("Судебные прецеденты", "/precedents", "◈")
     );
     if (isLawyer()) nav.append(navItem("Моё избранное", "/favorites", "☆"));
-    if (isAdmin()) nav.append(navItem("Редакционная проверка", "/reviews", "✓"));
+    if (isAdmin()) { nav.append(navItem("Управление библиотекой", "/admin", "⚙"));
+        nav.append(navItem("Редакционная проверка", "/reviews", "✓")); }
     nav.append(el("div", "sidebar-separator"));
     nav.append(el("div", "sidebar-heading", "ПРОЧИЕ РЕСУРСЫ"));
     allPortals.filter(p => p.id !== "library").forEach(p => {
@@ -679,6 +680,12 @@ function createArticleCard(a) {
         const edit = el("button", "button primary", "Редактировать");
         edit.onclick = () => openEditor(a, reading && reading.codeId, reading && reading.nodeId);
         actions.append(edit);
+        const relationAdmin=el("a","button ghost","Управление связями");
+        relationAdmin.href="/admin/relations?article="+encodeURIComponent(a.id);relationAdmin.dataset.link="";
+        actions.append(relationAdmin);
+        const archiveAdmin=el("a","button ghost","В архив");
+        archiveAdmin.href="/admin/archive?article="+encodeURIComponent(a.id);archiveAdmin.dataset.link="";
+        actions.append(archiveAdmin);
     }
     card.append(actions);
     if (location.pathname === "/articles/" + a.id) {
@@ -948,11 +955,18 @@ async function openSection(codeId, nodeId, targetId, options, serial) {
         addType.type = "button";
         addType.onclick = () => openStructureDialog("type", codeId);
         toolbar.append(addNode, addType);
+        const hierarchy=el("a","button ghost","Настроить иерархию");
+        hierarchy.href="/admin/hierarchy?code="+encodeURIComponent(codeId);hierarchy.dataset.link="";
+        toolbar.append(hierarchy);
         if (selected) {
             const editNode = el("button", "button ghost", "Изменить раздел");
             editNode.type = "button";
             editNode.onclick = () => openStructureDialog("edit", codeId, nodeId);
             toolbar.append(editNode);
+            const archiveNode=el("a","button ghost","Архивировать раздел");
+            archiveNode.href="/admin/archive?node="+encodeURIComponent(nodeId);
+            archiveNode.dataset.link="";
+            toolbar.append(archiveNode);
         }
     }
     toolbar.append(count);
@@ -1452,6 +1466,7 @@ async function renderRoute(path, options) {
     else if (parts[0] === "bills" && parts[1]) await billPage(parts[1]);
     else if (parts[0] === "bills") await billListPage();
     else if (parts[0] === "reviews") await reviewsPage();
+    else if (parts[0] === "admin") await adminPage(parts[1] || "overview");
     else if (parts[0] === "revisions" && parts[1]) await revisionsPage(parts[1]);
     else throw Error("Страница не найдена.");
     if (options.restore && !reading) {
