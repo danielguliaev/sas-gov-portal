@@ -231,6 +231,11 @@ def test_legislation_portal_desktop_and_mobile(tmp_path):
             expect(page.locator(".category-option-row input[type='checkbox']")).not_to_be_checked()
             page.evaluate("window.scrollTo(0,0)")
             page.screenshot(path=str(captures / "law-library-admin.png"), full_page=True)
+            page.set_viewport_size({"width":900,"height":820})
+            expect(page.locator(".category-workbench")).to_be_visible()
+            assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 2")
+            page.screenshot(path=str(captures / "law-library-admin-narrow.png"), full_page=True)
+            page.set_viewport_size({"width":1440,"height":900})
 
             # Archive operations show a server preview and require separate confirmation.
             page.goto(base_url + "/admin/archive?article=" + root_article["id"])
