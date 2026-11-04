@@ -604,8 +604,11 @@ def create_category(body: dict, current=Depends(actor)):
         if code_id:
             one(c, "SELECT id FROM codes WHERE id=?", (code_id,))
         name = plain(body.get("name"), 150)
-        if maybe(c, "SELECT id FROM categories WHERE name=? AND code_id IS ? AND active=1",
-                 (name, code_id)):
+        if not name:
+            fail(422, "INVALID_CATEGORY", "Введите название категории.")
+        existing = allrows(c,
+            "SELECT name FROM categories WHERE code_id IS ? AND active=1", (code_id,))
+        if any(row["name"].casefold() == name.casefold() for row in existing):
             fail(409, "DUPLICATE_CATEGORY", "Такая категория уже существует.")
         cat_id = uid()
         c.execute("INSERT INTO categories(id,code_id,name) VALUES(?,?,?)", (cat_id, code_id, name))
@@ -621,9 +624,9 @@ def update_category(category_id: str, body: dict, current=Depends(actor)):
         name = plain(body.get("name", old["name"]), 150)
         if not name:
             fail(422, "INVALID_CATEGORY", "Введите название категории.")
-        exists = maybe(c, """SELECT id FROM categories WHERE name=? AND code_id IS ?
-                          AND active=1 AND id<>?""", (name, old["code_id"], category_id))
-        if exists:
+        existing = allrows(c, """SELECT name FROM categories WHERE code_id IS ?
+                          AND active=1 AND id<>?""", (old["code_id"], category_id))
+        if any(row["name"].casefold() == name.casefold() for row in existing):
             fail(409, "DUPLICATE_CATEGORY", "Категория с таким названием уже существует.")
         c.execute("UPDATE categories SET name=? WHERE id=?", (name, category_id))
         audit(c, current, "category.update", "category", category_id, old, {"name": name})
@@ -641,10 +644,17 @@ def create_field(category_id: str, body: dict, current=Depends(actor)):
             fail(422, "INVALID_FIELD_TYPE", "Тип поля не поддерживается.")
         if field_type == "choice" and selection_mode not in ("single", "multiple"):
             fail(422, "INVALID_SELECTION_MODE", "Укажите single или multiple.")
+        name = plain(body.get("name"), 150)
+        if not name:
+            fail(422, "INVALID_FIELD_NAME", "Введите название нового поля.")
+        siblings = allrows(c,"SELECT name FROM category_fields WHERE category_id=? AND active=1",
+                           (category_id,))
+        if any(row["name"].casefold() == name.casefold() for row in siblings):
+            fail(409, "DUPLICATE_FIELD", "Поле с таким названием уже существует в категории.")
         field_id = uid()
         c.execute("""INSERT INTO category_fields(id,category_id,name,field_type,selection_mode)
                      VALUES(?,?,?,?,?)""",
-                  (field_id, category_id, plain(body.get("name"), 150), field_type, selection_mode))
+                  (field_id, category_id, name, field_type, selection_mode))
         audit(c, current, "field.create", "category_field", field_id, {}, body)
     return {"id": field_id}
 
@@ -665,8 +675,16 @@ def update_field(field_id: str, body: dict, current=Depends(actor)):
                 fail(422, "INVALID_SELECTION_MODE", "Укажите single или multiple.")
         else:
             new_mode = None
+        name = plain(body.get("name", old["name"]), 150)
+        if not name:
+            fail(422, "INVALID_FIELD_NAME", "Введите название поля.")
+        siblings = allrows(c,
+            "SELECT name FROM category_fields WHERE category_id=? AND id<>? AND active=1",
+            (old["category_id"], field_id))
+        if any(row["name"].casefold() == name.casefold() for row in siblings):
+            fail(409, "DUPLICATE_FIELD", "Поле с таким названием уже существует в категории.")
         c.execute("UPDATE category_fields SET name=?,field_type=?,selection_mode=? WHERE id=?",
-                  (plain(body.get("name", old["name"]), 150), new_type, new_mode, field_id))
+                  (name, new_type, new_mode, field_id))
         audit(c, current, "field.update", "category_field", field_id, old, body)
     return {"id": field_id}
 
@@ -676,9 +694,15 @@ def create_option(field_id: str, body: dict, current=Depends(actor)):
     _admin(current)
     with transaction() as c:
         one(c, "SELECT id FROM category_fields WHERE id=? AND field_type='choice'", (field_id,))
+        name = plain(body.get("name"), 200)
+        if not name:
+            fail(422, "INVALID_OPTION", "Введите значение справочника.")
+        siblings = allrows(c,"SELECT name FROM field_options WHERE field_id=?", (field_id,))
+        if any(row["name"].casefold() == name.casefold() for row in siblings):
+            fail(409, "DUPLICATE_OPTION", "Такое значение уже есть в справочнике.")
         oid = uid()
         c.execute("INSERT INTO field_options(id,field_id,name) VALUES(?,?,?)",
-                  (oid, field_id, plain(body.get("name"), 200)))
+                  (oid, field_id, name))
         audit(c, current, "option.create", "field_option", oid, {}, body)
     return {"id": oid}
 
@@ -688,9 +712,18 @@ def update_option(option_id: str, body: dict, current=Depends(actor)):
     _admin(current)
     with transaction() as c:
         old = one(c, "SELECT * FROM field_options WHERE id=?", (option_id,))
+        name = plain(body.get("name", old["name"]), 200)
+        if not name:
+            fail(422, "INVALID_OPTION", "Введите значение справочника.")
+        siblings = allrows(c,
+            "SELECT name FROM field_options WHERE field_id=? AND id<>?",
+            (old["field_id"], option_id))
+        if any(row["name"].casefold() == name.casefold() for row in siblings):
+            fail(409, "DUPLICATE_OPTION", "Такое значение уже есть в справочнике.")
+        if "active" in body and type(body["active"]) is not bool:
+            fail(422, "INVALID_OPTION", "Доступность варианта должна быть логическим значением.")
         c.execute("UPDATE field_options SET name=?,active=? WHERE id=?",
-                  (plain(body.get("name", old["name"]), 200),
-                   1 if body.get("active", bool(old["active"])) else 0, option_id))
+                  (name, 1 if body.get("active", bool(old["active"])) else 0, option_id))
         audit(c, current, "option.update", "field_option", option_id, old, body)
     return {"id": option_id}
 
