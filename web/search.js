@@ -37,7 +37,7 @@ async function advancedSearchPage() {
         filters.number=numberInput;
         choices("category","Категория",categories.map(c=>[c.name,c.id]));
         choices("criminal_class","Класс обвинения",[
-            ["Felony","felony"],["Misdemeanor","misdemeanor"],["Infraction","infraction"]]);
+            ["Тяжкое преступление","felony"],["Проступок","misdemeanor"],["Нарушение","infraction"]]);
         choices("has_sanctions","Наличие санкций",[
             ["Есть санкции","true"],["Без санкций","false"]]);
         [
