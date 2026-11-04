@@ -55,6 +55,31 @@ def codes(jurisdiction: str | None = None, current=Depends(actor)):
         return allrows(c, sql + " ORDER BY c.name,c.id", args)
 
 
+@router.get("/library/acts")
+def standalone_acts(jurisdiction: str | None = None, current=Depends(actor)):
+    """Published standalone legal acts not belonging to any code hierarchy."""
+    with read_db() as c:
+        sql = """SELECT id,portal_id,jurisdiction_id,title,document_type,issuer,issued_at,
+                        published_at,external_reference
+                 FROM portal_publications
+                 WHERE portal_id='library' AND status='published'"""
+        params = []
+        if jurisdiction:
+            sql += " AND jurisdiction_id=?"
+            params.append(jurisdiction)
+        return allrows(c, sql+" ORDER BY published_at DESC,id DESC LIMIT 200", params)
+
+
+@router.get("/library/acts/{act_id}")
+def standalone_act(act_id: str, current=Depends(actor)):
+    with read_db() as c:
+        document = one(c, """SELECT * FROM portal_publications
+                         WHERE id=? AND portal_id='library'""", (act_id,))
+        if document["status"] != "published":
+            require(current, "lawyer", "superadmin")
+        return document
+
+
 @router.get("/library/overview")
 def library_overview(current=Depends(actor)):
     """Overview metrics for the reader homepage; no restricted legal attributes."""
