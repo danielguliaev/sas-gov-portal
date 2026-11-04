@@ -61,10 +61,16 @@ def test_reader_retry_and_deep_article_link(tmp_path):
                 else:
                     route.continue_()
             page.route("**/api/v1/nodes/demo-intro/articles?*",temporary_failure)
+            code_requests=[]
+            page.on("request",lambda req: code_requests.append(req.url)
+                    if "/api/v1/codes/demo-penal/tree" in req.url else None)
             page.goto(base+"/")
             page.locator("#roleSelect").select_option("user")
             page.goto(base+"/codes/demo-penal/nodes/demo-intro")
             expect(page.locator(".article-card")).to_have_count(12,timeout=15000)
+            assert code_requests and all("include_nodes=false" in url
+                                         for url in code_requests),code_requests
+            expect(page.locator("#codeNav .code-tree-node")).not_to_have_count(0)
             original_ids=page.locator(".article-card").evaluate_all(
                 "(nodes) => nodes.map(n => n.dataset.articleId)")
             page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
