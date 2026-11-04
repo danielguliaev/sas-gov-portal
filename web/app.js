@@ -219,6 +219,7 @@ function refreshGlobalNav() {
     nav.append(
         navItem("Обзор", "/", "⌂"),
         navItem("Каталог законов", "/laws", "§"),
+        navItem("Нормативные акты", "/acts", "▣"),
         navItem("Поиск законодательства", "/search", "⌕"),
         navItem("Судебные прецеденты", "/precedents", "◈")
     );
@@ -1399,6 +1400,8 @@ async function renderRoute(path, options) {
         await lawCatalog(jurisdiction);
     }
     else if (parts[0] === "jurisdictions" && parts[1]) await jurisdiction(parts[1]);
+    else if (parts[0] === "acts" && parts[1]) await libraryActPage(parts[1]);
+    else if (parts[0] === "acts") await libraryActsPage();
     else if (parts[0] === "codes" && parts[1]) {
         await openSection(parts[1], parts[2] === "nodes" ? parts[3] : null, null, options, serial);
     }
