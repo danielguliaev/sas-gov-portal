@@ -324,3 +324,53 @@ def test_external_published_document_is_not_law_without_classification(client,he
     assert classified.status_code==200,classified.text
     assert aid in [x["id"] for x in client.get(url("/library/acts"),
                     headers=headers["user"]).json()]
+
+
+def test_disabled_relation_can_be_selectively_restored_only_if_compatible(client,headers,admin):
+    h=headers["superadmin"]
+    source=admin("831",cats=["accusation"],crime="felony")
+    alternative=admin("832",cats=["accusation"],crime="misdemeanor")
+    punishment=admin("833",sanctions={"fine_min_usd":0,"fine_max_usd":100})
+    kind="accusation_punishment"
+    relation=client.post(url("/relations"),headers=h,json={
+        "type_id":kind,"source_id":source["id"],"target_id":punishment["id"]})
+    assert relation.status_code==200,relation.text
+    rid=relation.json()["id"]
+    removed=client.post(url("/relations/"+rid+"/deactivate"),headers=h,
+                        json={"reason":"Редакторское решение"})
+    assert removed.status_code==200,removed.text
+    items=client.get(url("/articles/"+source["id"]+"/relations/restore-candidates"),headers=h)
+    assert items.status_code==200,items.text
+    plan=next(x for x in items.json() if x["relation_id"]==rid)
+    assert plan["restorable"] is True,plan
+    assert client.get(url("/articles/"+source["id"]+"/relations/restore-candidates"),
+                      headers=headers["lawyer"]).status_code==403
+    body={"confirm":True,"preview_hash":plan["preview_hash"]}
+    bad=client.post(url("/relations/"+rid+"/restore"),
+                    headers={**h,"Idempotency-Key":"relation-stale"},json={
+                    **body,"preview_hash":"bad"})
+    assert bad.status_code==409
+    created=client.post(url("/relations"),headers=h,json={
+        "type_id":kind,"source_id":alternative["id"],"target_id":punishment["id"]})
+    assert created.status_code==200,created.text
+    stale=client.post(url("/relations/"+rid+"/restore"),
+                    headers={**h,"Idempotency-Key":"relation-collision"},json=body)
+    assert stale.status_code==409,stale.text
+    plan=client.get(url("/articles/"+source["id"]+"/relations/restore-candidates"),
+                    headers=h).json()[0]
+    assert not plan["restorable"]
+    assert plan["conflicts"]
+    client.post(url("/relations/"+created.json()["id"]+"/deactivate"),headers=h,json={})
+    plan=client.get(url("/articles/"+source["id"]+"/relations/restore-candidates"),
+                    headers=h).json()[0]
+    assert plan["restorable"]
+    before=client.get(url("/articles/"+source["id"]),headers=h).json()["revision_id"]
+    revived=client.post(url("/relations/"+rid+"/restore"),
+        headers={**h,"Idempotency-Key":"relation-reactivate"},
+        json={"confirm":True,"preview_hash":plan["preview_hash"]})
+    assert revived.status_code==200,revived.text
+    assert revived.json()["active"] is True
+    after=client.get(url("/articles/"+source["id"]),headers=h).json()["revision_id"]
+    assert before!=after
+    assert len(client.get(url("/articles/"+source["id"]+"/relations"),
+                          headers=headers["user"]).json()["items"])==1
