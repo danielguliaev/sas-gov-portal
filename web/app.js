@@ -694,52 +694,119 @@ async function openSection(codeId, nodeId, targetId, options, serial) {
     await loadNext();
 }
 async function searchPage() {
-    pageHeading("Поиск законодательных текстов", "Поиск по законодательству",
-        "Найдите статью по номеру, названию или фрагменту текста.");
-    const form = el("form", "search-bar");
+    const incoming = new URLSearchParams(location.search);
+    const heading = el("section", "search-page-heading");
+    main.append(heading);
+    const intro = el("div", "eyebrow", "Библиотека · полнотекстовый поиск");
+    heading.append(intro, el("h1", "", "Поиск по законодательству"),
+        el("p", "lede", "Введите название, юридический номер или фрагмент текста. Результаты ведут к постоянной ссылке статьи."));
+    const form = el("form", "search-page-form");
+    form.setAttribute("role", "search");
     const q = el("input");
-    q.name = "query"; q.placeholder = "Название, номер или фрагмент статьи"; q.required = true;
-    q.setAttribute("aria-label", "Текст поиска");
-    const submit = el("button", "button primary", "Найти"); submit.type = "submit";
-    form.append(q,submit); main.append(form);
-    const controls = el("div", "search-controls");
+    q.id = "searchQuery"; q.name = "q"; q.type = "search";
+    q.maxLength = 200; q.value = incoming.get("q") || incoming.get("query") || "";
+    q.placeholder = "Например: подкуп, 187, доказательства";
+    q.setAttribute("aria-label", "Текст и юридический номер для поиска");
+    const submit = el("button", "button primary", "Искать");
+    submit.type = "submit";
+    form.append(q, submit);
+    main.append(form);
+    const controls = el("div", "search-page-filters");
+    const selections = {};
+    const addSelect = (key, label, options) => {
+        const wrap = el("label", "", label);
+        const field = el("select");
+        field.name = key;
+        field.append(new Option("Все", ""));
+        options.forEach(option => field.append(new Option(option[0], option[1])));
+        field.value = incoming.get(key) || "";
+        wrap.append(field);
+        controls.append(wrap);
+        selections[key] = field;
+    };
     if (isLawyer()) {
-        const category = el("select");
-        category.innerHTML = '<option value="">Все категории</option>';
         const categories = await api("/categories");
-        categories.forEach(item => category.append(new Option(item.name,item.id)));
-        category.id = "categoryFilter";
-        const clazz = el("select");
-        clazz.innerHTML = '<option value="">Любой уголовный класс</option><option value="felony">Felony</option><option value="misdemeanor">Misdemeanor</option><option value="infraction">Infraction</option>';
-        clazz.id = "classFilter";
-        const jurisdiction = el("select");
-        jurisdiction.innerHTML = '<option value="">Любая юрисдикция</option><option value="state">Штат</option><option value="county">Округ</option><option value="city">Лос-Сантос</option>';
-        jurisdiction.id = "jurisdictionFilter";
-        controls.append(category,clazz,jurisdiction);
+        addSelect("jurisdiction", "Юрисдикция",
+            [["Штат", "state"], ["Округ", "county"], ["Лос-Сантос", "city"]]);
+        addSelect("code_id", "Кодекс", allCodes.map(c => [c.name, c.id]));
+        addSelect("category", "Категория", categories.map(c => [c.name, c.id]));
+        addSelect("criminal_class", "Класс",
+            [["Felony", "felony"], ["Misdemeanor", "misdemeanor"], ["Infraction", "infraction"]]);
+        const reset = el("button", "button ghost", "Сбросить фильтры");
+        reset.type = "button";
+        reset.onclick = () => {
+            Object.values(selections).forEach(select => select.value = "");
+            q.value = "";
+            history.pushState({scrollY:0}, "", "/search");
+            renderResults(false);
+        };
+        controls.append(reset);
         main.append(controls);
     }
-    const results = el("div");
+    const resultHeader = el("div", "search-results-head");
+    const resultTitle = el("h2", "", "Результаты поиска");
+    const resultCount = el("span", "small muted", "");
+    resultHeader.append(resultTitle, resultCount);
+    main.append(resultHeader);
+    const results = el("div", "search-layout");
     main.append(results);
-    form.onsubmit = async ev => {
-        ev.preventDefault(); results.replaceChildren(el("p", "muted", "Выполняется поиск…"));
-        const params = new URLSearchParams({query:q.value});
-        if (isLawyer()) {
-            [["category","categoryFilter"],["criminal_class","classFilter"],["jurisdiction","jurisdictionFilter"]]
-                .forEach(pair => {const value = document.getElementById(pair[1]).value;if(value)params.set(pair[0],value);});
+    let searchSerial = 0;
+    async function renderResults(updateUrl) {
+        const params = new URLSearchParams();
+        if (q.value.trim()) params.set("query", q.value.trim());
+        for (const [key, field] of Object.entries(selections)) {
+            if (field.value) params.set(key, field.value);
         }
+        const hasQuery = params.toString().length > 0;
+        if (updateUrl) {
+            const url = "/search" + (hasQuery ? "?" + params.toString() : "");
+            history.pushState({scrollY:0}, "", url);
+        }
+        const requestId = ++searchSerial;
+        results.replaceChildren();
+        if (!hasQuery) {
+            resultCount.textContent = "";
+            results.append(el("p", "search-begin",
+                "Задайте поисковый запрос. Для расширенного поиска доступны фильтры юрисдикции, кодекса и категории."));
+            return;
+        }
+        resultCount.textContent = "Выполняется поиск";
+        results.append(el("p", "muted", "Ищем совпадения в действующих статьях…"));
         try {
-            const found = await api("/search?" + params);
+            const found = await api("/search?" + params.toString());
+            if (requestId !== searchSerial || !main.contains(results)) return;
             results.replaceChildren();
-            if (!found.items.length) results.append(el("p", "empty", "Совпадений не найдено."));
+            resultCount.textContent = "Найдено: " + found.items.length +
+                (found.items.length === found.limit ? " (показаны первые " + found.limit + ")" : "");
+            if (!found.items.length) {
+                results.append(el("p", "empty",
+                    "Совпадений нет. Попробуйте другой номер, ключевое слово или более широкий фильтр."));
+            }
             found.items.forEach(a => {
-                const item = el("a", "search-result");
-                item.href = "/articles/" + a.id; item.dataset.link = "";
-                item.append(el("span", "", "Статья " + a.number), el("strong", "", a.title),
-                            el("span", "", a.code_id));
-                results.append(item);
+                const card = el("a", "search-result");
+                card.href = "/articles/" + a.id; card.dataset.link = "";
+                const code = allCodes.find(c => c.id === a.code_id);
+                card.append(el("span", "match-code", (code ? code.name : "Кодекс") +
+                            " · Статья " + a.number),
+                            el("strong", "", a.title),
+                            el("span", "", a.is_demo ? "Демонстрационная статья" : "Открыть полный текст статьи"));
+                results.append(card);
             });
-        } catch(e) { results.replaceChildren(el("p", "notice", e.message)); }
+        } catch (error) {
+            if (requestId !== searchSerial || !main.contains(results)) return;
+            resultCount.textContent = "Ошибка поиска";
+            results.replaceChildren(el("p", "notice", error.message));
+        }
+    }
+    form.onsubmit = event => {
+        event.preventDefault();
+        renderResults(true);
     };
+    if (incoming.toString()) await renderResults(false);
+    else {
+        await renderResults(false);
+        if (document.activeElement === document.body) q.focus({preventScroll:true});
+    }
 }
 async function favoritesPage() {
     pageHeading("Персональные инструменты", "Избранные статьи",
