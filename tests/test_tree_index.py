@@ -73,3 +73,49 @@ def test_reader_skeleton_and_node_context_avoid_whole_code(client,headers):
         params={"node_id":"wrong"},headers=user).status_code==404
     assert client.get(api("/codes/demo-penal/node-context"),
         params={"node_id":"demo-intro"}).status_code==401
+
+
+def test_wide_code_tree_is_paged_without_bulk_structure_download(client,headers):
+    """600 sibling nodes exercise cursor boundaries without returning all nodes."""
+    from app.core import transaction
+    from app.core import number_sort_key
+    with transaction() as c:
+        for number in range(1,601):
+            key=str(number)
+            c.execute("""INSERT INTO structure_nodes
+                (id,code_id,type_id,parent_id,parent_key,number,number_key,
+                 sort_key,title,status)
+                 VALUES(?,?,?,?,?,?,?,?,?,'active')""",
+                ("wide-chapter-"+key,"demo-penal","demo-chapter",None,"ROOT",
+                 key,key,number_sort_key(key,"mixed"),"Глава "+key))
+    reader=headers["user"]
+    baseline=client.get(api("/codes/demo-penal/tree"),headers=reader,
+                        params={"include_nodes":"false"})
+    assert baseline.status_code==200
+    assert baseline.json()["nodes"]==[]
+
+    seen=set()
+    cursor=None
+    page_count=0
+    while True:
+        params={"limit":50}
+        if cursor:
+            params["cursor"]=cursor
+        response=client.get(api("/codes/demo-penal/structure-index"),
+                            headers=reader,params=params)
+        assert response.status_code==200,response.text
+        data=response.json()
+        assert len(data["items"])<=50
+        for item in data["items"]:
+            assert item["id"] not in seen
+            assert item["child_count"]==0
+            seen.add(item["id"])
+        page_count+=1
+        if not data["has_more"]:
+            assert data["next_cursor"] is None
+            break
+        cursor=data["next_cursor"]
+        assert cursor and page_count<20
+    assert len(seen)==601
+    assert page_count==13
+    assert "wide-chapter-600" in seen
