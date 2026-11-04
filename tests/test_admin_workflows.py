@@ -208,3 +208,14 @@ def test_offline_backup_and_restore_are_verified(client,headers,tmp_path):
     assert client.get(url("/articles/"+response.json()["id"]),
                       headers=headers["lawyer"]).status_code==404
     assert 2 in verify(path)["schema_versions"]
+
+
+def test_readiness_metrics_are_admin_only(client,headers):
+    ready=client.get("/health/ready")
+    assert ready.status_code==200
+    assert ready.json()["status"]=="ready"
+    client.get(url("/codes"),headers=headers["lawyer"])
+    assert client.get(url("/admin/metrics"),headers=headers["user"]).status_code==403
+    metrics=client.get(url("/admin/metrics"),headers=headers["superadmin"])
+    assert metrics.status_code==200,metrics.text
+    assert isinstance(metrics.json()["metrics"],dict)
