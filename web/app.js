@@ -892,10 +892,11 @@ function allowedParentTypes(type) {
         return Array.isArray(parents) ? parents : [];
     } catch (_) { return []; }
 }
-function openStructureDialog(mode, codeId, parentId = null) {
+async function openStructureDialog(mode, codeId, parentId = null) {
     if (!isAdmin()) return;
-    const nodes = treeData && treeData.nodes || [];
-    const types = treeData && treeData.types || [];
+    const full=await api("/codes/"+codeId+"/tree");
+    const nodes=full.nodes||[];
+    const types=full.types||[];
     const parent = nodes.find(n => n.id === parentId) || null;
     if (mode === "node" && !types.length) mode = "type";
     if (mode === "edit" && !parent) return notify("Раздел не найден.");
@@ -1029,10 +1030,16 @@ structureForm.addEventListener("submit", async event => {
 async function openSection(codeId, nodeId, targetId, options, serial) {
     const code = allCodes.find(c => c.id === codeId);
     if (!code) throw Error("Кодекс не найден.");
-    treeData = await api("/codes/" + codeId + "/tree");
+    // Reader fetches metadata and the selected ancestor chain, not the full code.
+    const [skeleton,context] = await Promise.all([
+        api("/codes/" + codeId + "/tree?include_nodes=false"),
+        nodeId?api("/codes/" + codeId + "/node-context?node_id=" +
+            encodeURIComponent(nodeId)):Promise.resolve(null)
+    ]);
     if (serial !== lastNavSerial) return;
-    const selected = nodeId ? treeData.nodes.find(n => n.id === nodeId) : null;
-    if (nodeId && !selected) throw Error("Раздел не найден или перемещён в архив.");
+    treeData={...skeleton,nodes:context?context.ancestors:[],
+        ancestors:context?context.ancestors:[]};
+    const selected=context?context.node:null;
     renderCodeNav(code, nodeId, !!targetId);
     const trail = [{label:"Реестр законов",href:"/laws"},
                    {label:code.name,href:"/codes/" + code.id}];
@@ -1098,32 +1105,50 @@ async function openSection(codeId, nodeId, targetId, options, serial) {
     toolbar.append(count);
     main.append(toolbar);
 
-    const subnodes = directChildren(treeData.nodes, nodeId || null);
-    if (subnodes.length) {
-        const sections = el("section", "section-catalog");
+    const query=new URLSearchParams({limit:"24"});
+    if(nodeId)query.set("parent_id",nodeId);
+    const subnodePage=await api("/codes/"+codeId+"/structure-index?"+query);
+    if(serial!==lastNavSerial)return;
+    const subnodes=subnodePage.items;
+    if(subnodes.length){
+        const sections=el("section","section-catalog");
         sections.append(homeSectionHeading("Структура документа",
-            selected ? "Подразделы" : "Содержание кодекса"));
-        const sectionGrid = el("div", "section-grid");
-        const renderSubnode = node => {
-            const type = treeData.types.find(t => t.id === node.type_id);
-            const a = el("a", "section-tile");
-            a.href = "/codes/" + codeId + "/nodes/" + node.id;
-            a.dataset.link = "";
-            const summary = el("span", "section-tile-text");
-            summary.append(el("strong", "", displayLegalTitle(node.title)),
-                           el("small", "", type ? type.name : "Раздел кодекса"));
-            a.append(el("span", "section-tile-number", node.number),
-                     summary, el("span", "section-tile-arrow", "↗"));
+            selected?"Подразделы":"Содержание кодекса"));
+        const sectionGrid=el("div","section-grid");
+        const renderSubnode=node=>{
+            const type=treeData.types.find(t=>t.id===node.type_id);
+            const a=el("a","section-tile");
+            a.href="/codes/"+codeId+"/nodes/"+node.id;
+            a.dataset.link="";
+            const title=el("span","section-tile-text");
+            title.append(el("strong","",displayLegalTitle(node.title)),
+                el("small","",type?type.name:node.type_name||"Раздел кодекса"));
+            a.append(el("span","section-tile-number",node.number),
+                title,el("span","section-tile-arrow","↗"));
             return a;
         };
-        subnodes.slice(0, 24).forEach(node => sectionGrid.append(renderSubnode(node)));
+        subnodes.forEach(node=>sectionGrid.append(renderSubnode(node)));
         sections.append(sectionGrid);
-        if (subnodes.length > 24) {
-            const more = el("button", "button ghost", "Показать остальные разделы (" + (subnodes.length - 24) + ")");
-            more.type = "button";
-            more.onclick = () => {
-                subnodes.slice(24).forEach(node => sectionGrid.append(renderSubnode(node)));
-                more.remove();
+        if(subnodePage.has_more){
+            const more=el("button","button ghost","Показать следующие разделы");
+            let cursor=subnodePage.next_cursor;
+            more.type="button";
+            more.onclick=async()=>{
+                more.disabled=true;more.textContent="Загрузка разделов…";
+                try{
+                    const params=new URLSearchParams({limit:"24",cursor});
+                    if(nodeId)params.set("parent_id",nodeId);
+                    const page=await api("/codes/"+codeId+"/structure-index?"+params);
+                    if(!sections.isConnected)return;
+                    page.items.forEach(node=>sectionGrid.append(renderSubnode(node)));
+                    cursor=page.next_cursor;
+                    if(!page.has_more)more.remove();
+                }catch(error){
+                    notify(error.message);
+                }finally{
+                    more.disabled=false;
+                    more.textContent="Показать следующие разделы";
+                }
             };
             sections.append(more);
         }
@@ -1681,8 +1706,9 @@ async function openEditor(article, codeId, nodeId) {
         visualEditor.innerHTML=article?article.text_rich:"";
         editorCustomValues={...(article&&article.custom_values||{})};
         editorForm.elements.criminal_class.value=article?article.criminal_class||"":"";
-        const hierarchy=treeData && treeData.code.id===codeId ?
-            treeData : await api("/codes/"+codeId+"/tree");
+        // Admin placement needs all currently valid parents; the normal
+        // reader uses paginated metadata and never downloads this full list.
+        const hierarchy=await api("/codes/"+codeId+"/tree");
         const locationSelect=document.getElementById("articleParentSelect");
         locationSelect.replaceChildren(new Option("Непосредственно в кодексе (без раздела)", ""));
         const labels=new Map();
