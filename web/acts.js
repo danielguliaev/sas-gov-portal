@@ -54,7 +54,22 @@ async function libraryActsPage() {
         form.form.prepend(adminField("Юрисдикция",jur),
             adminField("Заголовок",title),adminField("Тип документа",kind),
             adminField("Орган или источник",issuer),adminField("Текст документа",text));
-        section.append(form.form);main.append(section);
+        section.append(form.form);
+        const attach=adminForm(async()=>{
+            if(!externalId.value.trim())throw Error("Укажите ID уже опубликованного документа.");
+            if(!confirm("Проверили реквизиты документа и подтверждаете его включение в нормативный каталог?"))return;
+            const result=await api("/library/acts/"+encodeURIComponent(externalId.value.trim())+
+                "/classify",{method:"POST",headers:{"Idempotency-Key":crypto.randomUUID()},
+                body:{confirm:true}});
+            go("/acts/"+result.id);
+        });
+        const externalId=adminInput("","ID опубликованного документа");
+        attach.save.textContent="Включить в каталог";
+        attach.form.prepend(adminField("Документ, опубликованный государственным органом",externalId));
+        section.append(el("h3","","Классификация опубликованного документа"),
+            adminInfo("Только явно утверждённый нормативный документ. Не включайте новости и судебные решения."),
+            attach.form);
+        main.append(section);
     }
 }
 async function libraryActPage(id) {
