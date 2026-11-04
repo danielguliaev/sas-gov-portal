@@ -104,7 +104,7 @@ async function adminPage(section) {
         area.append(grid,adminInfo("Критические операции сохраняются только после серверной проверки и отдельного подтверждения."));
     }
     else if(section==="codes") await adminCodes(area);
-    else if(section==="hierarchy") await adminHierarchy(area);
+    else if(section==="hierarchy") await adminHierarchyWorkbench(area);
     else if(section==="categories") await adminCategories(area);
     else if(section==="relations") await adminRelations(area);
     else if(section==="archive") await adminArchive(area);
