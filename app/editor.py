@@ -431,11 +431,15 @@ def update_relation_type(type_id: str, body: dict, current=Depends(actor)):
         for rel in allrows(c, "SELECT * FROM article_relations WHERE type_id=? AND active=1", (type_id,)):
             s = one(c, "SELECT categories_json FROM articles WHERE id=?", (rel["source_id"],))
             t = one(c, "SELECT categories_json FROM articles WHERE id=?", (rel["target_id"],))
+            competing = maybe(c, """SELECT id FROM article_relations WHERE active=1
+                        AND exclusive_target=1 AND target_id=? AND type_id<>? LIMIT 1""",
+                        (rel["target_id"], type_id)) if exclusive else None
             if ((source_cat and source_cat not in loads(s["categories_json"], [])) or
                 (target_cat and target_cat not in loads(t["categories_json"], [])) or
-                (exclusive and rel["target_id"] in seen)):
+                (exclusive and (rel["target_id"] in seen or competing))):
                 conflicts.append({"relation_id": rel["id"], "source_id": rel["source_id"],
-                                  "target_id": rel["target_id"]})
+                                  "target_id": rel["target_id"],
+                                  "competing_relation_id": competing["id"] if competing else None})
             seen.add(rel["target_id"])
         if conflicts:
             fail(409, "RELATION_RULE_CONFLICT", "Правило несовместимо с действующими связями.",
@@ -443,6 +447,9 @@ def update_relation_type(type_id: str, body: dict, current=Depends(actor)):
         c.execute("""UPDATE relation_types SET name=?,source_category=?,target_category=?,exclusive_target=?
                      WHERE id=?""", (plain(body.get("name", old["name"]), 200), source_cat,
                                     target_cat, 1 if exclusive else 0, type_id))
+        # The denormalized column also powers a filtered unique index at the DB layer.
+        c.execute("UPDATE article_relations SET exclusive_target=? WHERE type_id=?",
+                  (1 if exclusive else 0, type_id))
         audit(c, current, "relation_type.update", "relation_type", type_id, old, body)
     return {"id": type_id}
 
