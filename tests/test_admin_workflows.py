@@ -219,3 +219,45 @@ def test_readiness_metrics_are_admin_only(client,headers):
     metrics=client.get(url("/admin/metrics"),headers=headers["superadmin"])
     assert metrics.status_code==200,metrics.text
     assert isinstance(metrics.json()["metrics"],dict)
+
+
+def test_standalone_normative_act_publication_archive_and_stable_id(client,headers):
+    h={**headers["superadmin"],"Idempotency-Key":"act-create-1"}
+    body={"jurisdiction_id":"city","title":"Муниципальное постановление",
+          "document_type":"Постановление","issuer":"Город Лос-Сантос",
+          "text_rich":"<p>Текст акта</p><script>alert(1)</script>","confirm":True}
+    missing=client.post(url("/library/acts"),headers=headers["superadmin"],json={
+        **body,"confirm":False})
+    assert missing.status_code==422
+    created=client.post(url("/library/acts"),headers=h,json=body)
+    assert created.status_code==200,created.text
+    aid=created.json()["id"]
+    repeated=client.post(url("/library/acts"),headers=h,json=body)
+    assert repeated.json()==created.json()
+    listing=client.get(url("/library/acts?jurisdiction=city"),headers=headers["user"])
+    assert listing.status_code==200
+    assert aid in [a["id"] for a in listing.json()]
+    article=client.get(url("/library/acts/"+aid),headers=headers["user"])
+    assert article.status_code==200
+    assert "script" not in article.json()["text_rich"]
+    preview=client.post(url("/library/acts/"+aid+"/archive/preview"),
+                        headers=headers["superadmin"])
+    assert preview.status_code==200
+    denied=client.post(url("/library/acts/"+aid+"/archive"),
+        headers={**headers["superadmin"],"Idempotency-Key":"act-archive-no"},
+        json={"confirm":True,"preview_hash":"wrong"})
+    assert denied.status_code==409
+    archived=client.post(url("/library/acts/"+aid+"/archive"),
+        headers={**headers["superadmin"],"Idempotency-Key":"act-archive-yes"},
+        json={"confirm":True,"preview_hash":preview.json()["preview_hash"]})
+    assert archived.status_code==200
+    assert aid not in [a["id"] for a in client.get(url("/library/acts"),
+                   headers=headers["lawyer"]).json()]
+    assert client.get(url("/library/acts/"+aid),headers=headers["user"]).status_code==403
+    assert client.get(url("/library/acts/"+aid),headers=headers["lawyer"]).status_code==200
+    restored=client.post(url("/library/acts/"+aid+"/restore"),
+        headers={**headers["superadmin"],"Idempotency-Key":"act-restore-yes"},
+        json={"confirm":True})
+    assert restored.status_code==200,restored.text
+    assert restored.json()["id"]==aid
+    assert client.get(url("/library/acts/"+aid),headers=headers["user"]).status_code==200
