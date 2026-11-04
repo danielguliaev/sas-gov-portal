@@ -85,8 +85,16 @@ def normalize_number(number):
     return re.sub(r"[\s.\-–_]+", "", unicodedata.normalize("NFKC", number).upper())
 
 
-def number_sort_key(number):
+def number_sort_key(number, number_format="mixed"):
     normalized = unicodedata.normalize("NFKC", number).upper()
+    if number_format == "roman":
+        values = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
+        total, previous = 0, 0
+        for char in reversed(normalized):
+            amount = values[char]
+            total += -amount if amount < previous else amount
+            previous = max(previous, amount)
+        return "0" + str(total).zfill(20)
     parts = re.findall(r"\d+|[A-ZА-Я]+|[^A-ZА-Я\d\s.\-–_]+", normalized)
     return "".join("0" + p.zfill(20) if p.isdecimal() else "1" + p + "\x01" for p in parts)
 
