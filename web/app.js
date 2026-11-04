@@ -1,4 +1,4 @@
-/* Browser client for the demonstrational legislative network. No live refresh of reading content. */
+/* Client for the San Andreas legal library. Reading content is not refreshed automatically. */
 "use strict";
 const main = document.getElementById("main");
 const sidebar = document.getElementById("sidebar");
@@ -40,6 +40,13 @@ function escaped(value) {
     });
 }
 function text(value) { return value === null || value === undefined || value === "" ? "Не указано" : String(value); }
+function displayLegalTitle(value) {
+    // Presentation-only cleanup for the exact sample labels shipped with the local seed.
+    // Persisted legal text and revision history are never rewritten.
+    const title = String(value ?? "");
+    return title.replace(/\s*\(демо\)$/iu, "")
+                .replace(/^Демонстрационная норма$/iu, "Пример статьи");
+}
 function friendlyDate(s) {
     if (!s) return "Не указано";
     const d = new Date(s);
@@ -204,10 +211,12 @@ function refreshGlobalNav() {
         navItem("Судебные прецеденты", "/precedents", "◈")
     );
     if (isLawyer()) nav.append(navItem("Моё избранное", "/favorites", "☆"));
-    if (hasRole("library_editor") || isAdmin()) nav.append(navItem("Редакционная проверка", "/reviews", "✓"));
-    const div = el("div", "sidebar-separator");
-    nav.append(div);
-    allPortals.filter(p => p.id !== "library").forEach(p => nav.append(navItem(p.name, "/portals/" + p.id, "⌑")));
+    if (isAdmin()) nav.append(navItem("Редакционная проверка", "/reviews", "✓"));
+    nav.append(el("div", "sidebar-separator"));
+    nav.append(el("div", "sidebar-heading", "ПРОЧИЕ РЕСУРСЫ"));
+    allPortals.filter(p => p.id !== "library").forEach(p => {
+        nav.append(el("div", "nav-static-resource", p.name));
+    });
     document.querySelectorAll(".header-nav a[data-link]").forEach(link => {
         if (link.getAttribute("href") === location.pathname) link.setAttribute("aria-current", "page");
         else link.removeAttribute("aria-current");
@@ -259,7 +268,7 @@ function makeLawCodeCard(code) {
     card.href = "/codes/" + code.id; card.dataset.link = "";
     const top = el("div", "code-card-top");
     top.append(el("span", "code-acronym", code.abbreviation || "КОДЕКС"));
-    if (code.is_demo) top.append(el("span", "code-status", "Демонстрационный"));
+
     const meta = el("div", "code-card-meta");
     meta.append(el("span", "", (code.section_count ?? 0) + " разделов"),
                 el("span", "", (code.article_count ?? 0) + " статей"));
@@ -372,8 +381,7 @@ async function home(guest = false) {
             a.href = "/articles/" + revision.id; a.dataset.link = "";
             const copy = el("div");
             copy.append(el("strong", "", "Статья " + revision.number + " — " + revision.title),
-                el("small", "", revision.code_name + " · " + friendlyDate(revision.published_at) +
-                   (revision.is_demo ? " · демонстрационная" : "")));
+                el("small", "", revision.code_name + " · " + friendlyDate(revision.published_at)));
             a.append(copy, el("span", "activity-arrow", "↗"));
             list.append(a);
         });
@@ -396,7 +404,7 @@ async function lawCatalog(preselected = "all") {
         throw Error("Неизвестная юрисдикция.");
     }
     main.append(breadcrumb([{label:"Главная",href:"/"},{label:"Реестр кодексов"}]));
-    pageHeading("Законодательная библиотека", "Каталог законов и кодексов",
+    pageHeading("Правовая библиотека", "Каталог законов и кодексов",
         "Собрание кодексов по юрисдикциям. Выберите источник, чтобы открыть структуру и тексты статей.");
     const bar = el("div", "catalog-toolbar");
     const tabs = el("div", "catalog-filters");
@@ -440,9 +448,7 @@ async function lawCatalog(preselected = "all") {
     });
     searchInput.addEventListener("input", draw);
     draw();
-    const note = el("p", "notice",
-        "Обозначение «Демонстрационный» означает учебное содержимое, а не официально действующий нормативный акт.");
-    main.append(note);
+
 }
 async function jurisdiction(id) {
     await lawCatalog(id);
@@ -586,9 +592,9 @@ function createArticleCard(a) {
     card.dataset.articleId = a.id;
     const top = el("div", "article-top");
     const titles = el("div");
-    titles.append(el("div", "article-number", "СТАТЬЯ " + a.number), el("h2", "", a.title));
+    titles.append(el("div", "article-number", "СТАТЬЯ " + a.number), el("h2", "", displayLegalTitle(a.title)));
     top.append(titles);
-    if (a.is_demo) top.append(el("span", "tag", "ДЕМО"));
+
     card.append(top);
     const textBlock = el("div", "article-text");
     textBlock.innerHTML = a.text_rich || "<p>Текст не указан.</p>";
@@ -782,11 +788,7 @@ async function openSection(codeId, nodeId, targetId, options, serial) {
     pageHeading(code.abbreviation ? "Кодекс " + code.abbreviation : "Законодательный кодекс",
                 title, selected ? "Структурный раздел кодекса «" + code.name + "»." :
                 "Содержание кодекса. Выберите раздел для изучения норм права.");
-    if (code.is_demo) {
-        const status = el("div", "notice",
-            "Этот кодекс обозначен как демонстрационный. Приведённые материалы не являются действующими правовыми нормами.");
-        main.append(status);
-    }
+
     const toolbar = el("div", "reader-subnav");
     const catalogLink = el("a", "button ghost", "← Все кодексы");
     catalogLink.href = "/laws"; catalogLink.dataset.link = "";
@@ -968,7 +970,7 @@ async function searchPage() {
                 card.append(el("span", "match-code", (code ? code.name : "Кодекс") +
                             " · Статья " + a.number),
                             el("strong", "", a.title),
-                            el("span", "", a.is_demo ? "Демонстрационная статья" : "Открыть полный текст статьи"));
+                            el("span", "", "Открыть полный текст статьи"));
                 results.append(card);
             });
         } catch (error) {
