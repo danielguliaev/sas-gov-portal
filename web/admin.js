@@ -186,11 +186,14 @@ async function adminCodes(area) {
     publication.append(el("summary","","Необязательно: сведения о публикации кодекса"));
     const publicationGrid=el("div","admin-create-grid");
     const publicationIssuer=adminInput("","Издавший орган");
+    publicationIssuer.name="publication_issuer";
     publicationIssuer.maxLength=200;
     const publicationReference=adminInput("","Регистрационный номер, источник");
+    publicationReference.name="publication_reference";
     publicationReference.maxLength=250;
     const publishedAt=adminInput("");
     publishedAt.type="date";
+    publishedAt.name="published_at";
     publishedAt.setAttribute("aria-label","Дата официальной публикации");
     publicationGrid.append(adminField("Издавший орган",publicationIssuer),
         adminField("Реквизиты публикации",publicationReference),
@@ -253,11 +256,14 @@ async function adminCodes(area) {
         const shortName=adminInput(c.abbreviation||"","Краткое обозначение");
         shortName.maxLength=40;
         const issuer=adminInput(c.publication_issuer||"","Издавший орган");
+        issuer.name="publication_issuer";
         issuer.maxLength=200;
         const reference=adminInput(c.publication_reference||"","Номер официального документа");
+        reference.name="publication_reference";
         reference.maxLength=250;
         const date=adminInput(c.published_at||"");
         date.type="date";
+        date.name="published_at";
         const metadata=el("div","code-metadata-grid");
         metadata.append(adminField("Название",rename),
             adminField("Сокращение",shortName),
