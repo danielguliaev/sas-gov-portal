@@ -83,7 +83,39 @@ def test_admin_task_workbenches_and_russian_offense_classes(tmp_path):
             page.set_viewport_size({"width":900,"height":800})
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 2")
 
+            # AT-17: selecting a fragment in the reader stores a revision-bound
+            # scientific note; the ordinary reader does not get this tool.
+            annotated=page.request.post(base+"/api/v1/articles",
+                headers={"X-Demo-User":"superadmin"},data={
+                    "code_id":"demo-penal","number":"601",
+                    "title":"Аннотация к норме","categories":["definition"],
+                    "text_rich":"<p>ABC &amp; XYZ положения.</p>"})
+            assert annotated.status==200,annotated.text()
+            article_id=annotated.json()["id"]
             page.locator("#roleSelect").select_option("lawyer")
+            page.goto(base+"/articles/"+article_id)
+            text_block=page.locator("#card-"+article_id+" .article-text")
+            expect(text_block).to_be_visible()
+            text_block.evaluate("""(root) => {
+                const range=document.createRange();
+                const text=root.querySelector('p').firstChild;
+                range.setStart(text,0);
+                range.setEnd(text,9);
+                const selection=window.getSelection();
+                selection.removeAllRanges();
+                selection.addRange(range);
+                root.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));
+            }""")
+            page.once("dialog",lambda d:d.accept("Научное примечание юриста"))
+            page.locator("#card-"+article_id).get_by_role(
+                "button",name="Добавить примечание к выделению").click()
+            page.locator("#card-"+article_id+" .annotation-panel > summary").click()
+            expect(page.locator("#card-"+article_id+" .annotation-entry")).to_contain_text(
+                "Научное примечание юриста",timeout=10000)
+            reader=page.request.get(base+"/api/v1/articles/"+article_id+"/annotations",
+                headers={"X-Demo-User":"user"})
+            assert reader.status==403,reader.text()
+
             page.goto(base+"/search")
             expect(page.locator(".search-page-filters select[name=criminal_class]")).to_be_visible()
             assert page.locator(".search-page-filters select[name=criminal_class] option").all_text_contents()[-3:] == [
