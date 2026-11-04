@@ -691,6 +691,40 @@ def restore_batch(body: dict, idempotency_key: str | None = Header(None), curren
         return idempotent(c, current, "restore", idempotency_key, body, do_restore)
 
 
+@router.get("/admin/archives")
+def archive_inventory(code_id: str | None = None, current=Depends(actor)):
+    """Small administrative archive inventory; no archived text sent to the reader."""
+    _admin(current)
+    with read_db() as c:
+        sql = """SELECT b.id,b.root_node_id,b.created_at,b.article_ids,b.node_ids
+                 FROM archive_batches b ORDER BY b.created_at DESC,b.id DESC LIMIT 200"""
+        batches = allrows(c, sql)
+        entries = []
+        for batch in batches:
+            article_ids = loads(batch.pop("article_ids"), [])
+            node_ids = loads(batch.pop("node_ids"), [])
+            if code_id:
+                matching = c.execute("""SELECT 1 FROM articles WHERE id IN (
+                    SELECT value FROM json_each(?)) AND code_id=? LIMIT 1""",
+                    (dumps(article_ids), code_id)).fetchone()
+                if not matching and node_ids:
+                    matching = c.execute("""SELECT 1 FROM structure_nodes WHERE id IN (
+                        SELECT value FROM json_each(?)) AND code_id=? LIMIT 1""",
+                        (dumps(node_ids), code_id)).fetchone()
+                if not matching:
+                    continue
+            batch["article_count"] = len(article_ids)
+            batch["node_count"] = len(node_ids)
+            batch["archived_articles"] = allrows(c, """SELECT id,code_id,number,title,parent_id
+                FROM articles WHERE archive_batch_id=? AND status='archived'
+                ORDER BY sort_key,id LIMIT 100""", (batch["id"],))
+            batch["archived_nodes"] = allrows(c, """SELECT id,code_id,number,title,parent_id
+                FROM structure_nodes WHERE archive_batch_id=? AND status='archived'
+                ORDER BY sort_key,id LIMIT 100""", (batch["id"],))
+            entries.append(batch)
+        return entries
+
+
 @router.get("/admin/audit")
 def audit_log(limit: int = 100, current=Depends(actor)):
     _admin(current)
