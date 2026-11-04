@@ -65,6 +65,8 @@ def test_legislation_portal_desktop_and_mobile(tmp_path):
             page.locator(".section-tile").first.click()
             expect(page.locator(".article-card")).to_have_count(1)
             expect(page.locator(".article-card")).to_contain_text("Демонстрационная норма")
+            # A section click must not retain the old scroll position from the previous screen.
+            assert page.evaluate("window.scrollY") < 20
             page.screenshot(path=str(captures / "law-portal-reader.png"), full_page=True)
 
             # Search form navigates to an addressable search page.
