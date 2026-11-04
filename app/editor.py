@@ -739,6 +739,79 @@ def restore_batch(body: dict, idempotency_key: str | None = Header(None), curren
         return idempotent(c, current, "restore", idempotency_key, body, do_restore)
 
 
+@router.post("/library/acts")
+def create_standalone_act(body: dict, idempotency_key: str | None = Header(None),
+                          current=Depends(actor)):
+    _admin(current)
+    if body.get("confirm") is not True:
+        fail(422, "CONFIRMATION_REQUIRED", "Подтвердите публикацию самостоятельного правового акта.")
+    with transaction() as c:
+        def apply():
+            jurisdiction_id = body.get("jurisdiction_id")
+            one(c, "SELECT id FROM jurisdictions WHERE id=?", (jurisdiction_id,))
+            act_id = uid()
+            title = plain(body.get("title"), 250)
+            kind = plain(body.get("document_type", "Нормативный акт"), 100)
+            issuer = plain(body.get("issuer", "Штат Сан-Андреас"), 200)
+            rich = clean(body.get("text_rich", ""))
+            if not title or not rich.strip():
+                fail(422, "INVALID_ACT", "Нужны название и текст нормативного акта.")
+            stamp = ts()
+            c.execute("""INSERT INTO portal_publications
+                         (id,portal_id,jurisdiction_id,title,document_type,issuer,
+                          text_rich,status,issued_at,published_at,external_reference)
+                         VALUES(?,'library',?,?,?,?,?,'published',?,?,?)""",
+                       (act_id,jurisdiction_id,title,kind,issuer,rich,stamp,stamp,
+                        plain(body.get("external_reference", ""), 200)))
+            audit(c,current,"library_act.publish","portal_publication",act_id,{},{
+                "title":title,"issuer":issuer,"jurisdiction_id":jurisdiction_id})
+            return {"id":act_id,"status":"published"}
+        return idempotent(c,current,"library-act:create",idempotency_key,body,apply)
+
+
+@router.post("/library/acts/{act_id}/archive/preview")
+def archive_act_preview(act_id: str, current=Depends(actor)):
+    _admin(current)
+    with read_db() as c:
+        act = one(c, """SELECT id,title,status,published_at FROM portal_publications
+                        WHERE id=? AND portal_id='library' AND status='published'""", (act_id,))
+        return {**act,"preview_hash":_fingerprint(act)}
+
+
+@router.post("/library/acts/{act_id}/archive")
+def archive_act(act_id: str, body: dict,
+                idempotency_key: str | None = Header(None), current=Depends(actor)):
+    _admin(current)
+    if body.get("confirm") is not True:
+        fail(422,"CONFIRMATION_REQUIRED","Подтвердите архивирование правового акта.")
+    with transaction() as c:
+        def apply():
+            act = one(c, """SELECT id,title,status,published_at FROM portal_publications
+                           WHERE id=? AND portal_id='library' AND status='published'""", (act_id,))
+            if _fingerprint(act) != body.get("preview_hash"):
+                fail(409,"PREVIEW_STALE","Состояние акта изменилось.")
+            c.execute("UPDATE portal_publications SET status='archived' WHERE id=?", (act_id,))
+            audit(c,current,"library_act.archive","portal_publication",act_id,act,{"status":"archived"})
+            return {"id":act_id,"status":"archived"}
+        return idempotent(c,current,"library-act:archive:"+act_id,idempotency_key,body,apply)
+
+
+@router.post("/library/acts/{act_id}/restore")
+def restore_act(act_id: str, body: dict,
+                idempotency_key: str | None = Header(None), current=Depends(actor)):
+    _admin(current)
+    if body.get("confirm") is not True:
+        fail(422,"CONFIRMATION_REQUIRED","Подтвердите восстановление правового акта.")
+    with transaction() as c:
+        def apply():
+            act = one(c, """SELECT id,title,status FROM portal_publications
+                           WHERE id=? AND portal_id='library' AND status='archived'""", (act_id,))
+            c.execute("UPDATE portal_publications SET status='published' WHERE id=?", (act_id,))
+            audit(c,current,"library_act.restore","portal_publication",act_id,act,{"status":"published"})
+            return {"id":act_id,"status":"published"}
+        return idempotent(c,current,"library-act:restore:"+act_id,idempotency_key,body,apply)
+
+
 @router.get("/admin/archives")
 def archive_inventory(code_id: str | None = None, current=Depends(actor)):
     """Small administrative archive inventory; no archived text sent to the reader."""
