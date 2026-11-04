@@ -960,6 +960,15 @@ async function openSection(codeId, nodeId, targetId, options, serial) {
     pageHeading(code.abbreviation ? "Кодекс " + code.abbreviation : "Законодательный кодекс",
                 title, selected ? "Структурный раздел кодекса «" + code.name + "»." :
                 "Содержание кодекса. Выберите раздел для изучения норм права.");
+    if (code.publication_issuer || code.publication_reference || code.published_at) {
+        const provenance=el("p","code-provenance");
+        const fields=[];
+        if(code.publication_issuer)fields.push("Издавший орган: "+code.publication_issuer);
+        if(code.publication_reference)fields.push("Реквизиты: "+code.publication_reference);
+        if(code.published_at)fields.push("Дата публикации: "+friendlyDate(code.published_at));
+        provenance.textContent=fields.join(" · ");
+        main.append(provenance);
+    }
 
     const toolbar = el("div", "reader-subnav");
     const catalogLink = el("a", "button ghost", "← Все кодексы");
