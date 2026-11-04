@@ -15,6 +15,7 @@ const CATEGORY_NAMES = {accusation:"Обвинение",punishment_measure:"Ме
   auxiliary:"Вспомогательная мера",definition:"Определение"};
 roleSelect.value = role;
 let currentUser = null;
+let favoriteIds = new Set();
 let allCodes = [];
 let allPortals = [];
 let treeData = null;
@@ -219,6 +220,10 @@ async function loadContext() {
     refreshGlobalNav();
     const prefs = await api("/me/preferences");
     setFont(prefs.font_scale);
+    if (isLawyer()) {
+        const saved = await api("/me/favorites");
+        favoriteIds = new Set(saved.map(article => article.id));
+    }
 }
 function homeSectionHeading(kicker, title, linkLabel, href) {
     const head = el("div", "home-section-title");
@@ -462,7 +467,7 @@ function renderCodeNav(code, selectedNode, directTarget) {
     root.append(rootLink);
     const state = treeStorage(code.id);
     const ancestors = new Set();
-    if (directTarget && selectedNode) {
+    if (selectedNode) {
         let parent = selectedNode;
         while (parent) {
             ancestors.add(parent);
@@ -586,13 +591,25 @@ function createArticleCard(a) {
     };
     actions.append(copy);
     if (isLawyer()) {
-        const favorite = el("button", "button subtle", "☆ В избранное");
+        const favorite = el("button", "button subtle");
+        favorite.type = "button";
+        const syncFavorite = () => {
+            const saved = favoriteIds.has(a.id);
+            favorite.textContent = saved ? "★ В избранном" : "☆ В избранное";
+            favorite.setAttribute("aria-pressed", String(saved));
+        };
+        syncFavorite();
         favorite.onclick = async () => {
+            favorite.disabled = true;
             try {
-                await api("/me/favorites/" + a.id, {method:"PUT"});
-                favorite.textContent = "★ В избранном";
-                notify("Статья добавлена в избранное.");
+                const wasSaved = favoriteIds.has(a.id);
+                await api("/me/favorites/" + a.id, {method:wasSaved ? "DELETE" : "PUT"});
+                if (wasSaved) favoriteIds.delete(a.id);
+                else favoriteIds.add(a.id);
+                syncFavorite();
+                notify(wasSaved ? "Статья удалена из избранного." : "Статья добавлена в избранное.");
             } catch (error) { notify(error.message); }
+            finally { favorite.disabled = false; }
         };
         actions.append(favorite);
         const historyLink = el("a", "button subtle", "Редакции");
@@ -728,7 +745,7 @@ async function openSection(codeId, nodeId, targetId, options, serial) {
     const catalogLink = el("a", "button ghost", "← Все кодексы");
     catalogLink.href = "/laws"; catalogLink.dataset.link = "";
     const findInCode = el("a", "button ghost", "Поиск по кодексу");
-    findInCode.href = "/search?code_id=" + encodeURIComponent(code.id);
+    findInCode.href = isLawyer() ? "/search?code_id=" + encodeURIComponent(code.id) : "/search";
     findInCode.dataset.link = "";
     const print = el("button", "button ghost action-print", "Распечатать");
     print.type = "button";
@@ -936,7 +953,11 @@ async function favoritesPage() {
         item.append(link);
         const remove = el("button", "button subtle", "Удалить из избранного");
         remove.onclick = async () => {
-            try { await api("/me/favorites/" + a.id, {method:"DELETE"}); item.remove(); }
+            try {
+                await api("/me/favorites/" + a.id, {method:"DELETE"});
+                favoriteIds.delete(a.id);
+                item.remove();
+            }
             catch(e) { notify(e.message); }
         };
         item.append(remove); main.append(item);
