@@ -122,6 +122,43 @@ def _paginate(c, code_id, parent_id, limit, cursor, current):
             "has_more": has_more, "next_cursor": next_cursor}
 
 
+@router.get("/codes/{code_id}/root/article-index")
+def root_article_index(code_id: str, cursor: str | None = None,
+                       limit: int = Query(100, ge=1, le=200), current=Depends(actor)):
+    """Metadata-only sidebar index, scoped to articles directly in the code root."""
+    with read_db() as c:
+        one(c, "SELECT id FROM codes WHERE id=? AND status='active'", (code_id,))
+        return _article_index(c, code_id, None, limit, cursor)
+
+
+@router.get("/nodes/{node_id}/article-index")
+def node_article_index(node_id: str, cursor: str | None = None,
+                       limit: int = Query(100, ge=1, le=200), current=Depends(actor)):
+    with read_db() as c:
+        node = one(c, "SELECT id,code_id FROM structure_nodes WHERE id=? AND status='active'", (node_id,))
+        return _article_index(c, node["code_id"], node_id, limit, cursor)
+
+
+def _article_index(c, code_id, parent_id, limit, cursor):
+    scope = code_id + ":" + (parent_id or "ROOT")
+    position = _cursor(cursor, scope)
+    sql = """SELECT id,number,title,sort_key FROM articles
+             WHERE code_id=? AND parent_id IS ? AND status='active'"""
+    args = [code_id, parent_id]
+    if position:
+        sql += " AND (sort_key > ? OR (sort_key=? AND id>?))"
+        args += [position[0], position[0], position[1]]
+    rows = allrows(c, sql + " ORDER BY sort_key,id LIMIT ?", args + [limit + 1])
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    next_cursor = None
+    if has_more and rows:
+        payload = {"sort": rows[-1]["sort_key"], "id": rows[-1]["id"], "scope": scope}
+        next_cursor = base64.urlsafe_b64encode(dumps(payload).encode()).decode().rstrip("=")
+    return {"items": [{"id": a["id"], "number": a["number"], "title": a["title"]} for a in rows],
+            "has_more": has_more, "next_cursor": next_cursor}
+
+
 @router.get("/codes/{code_id}/root/articles")
 def root_articles(code_id: str, cursor: str | None = None,
                   limit: int = Query(12, ge=1, le=50), current=Depends(actor)):
@@ -354,17 +391,19 @@ def remove_favorite(article_id: str, current=Depends(actor)):
 
 @router.get("/me/notifications")
 def notifications(portal_id: str = "library", current=Depends(actor)):
+    # The library's notification center must never aggregate other agency portals.
+    if portal_id != "library":
+        fail(403, "PORTAL_SCOPE", "Центр уведомлений относится только к правовой библиотеке.")
     with read_db() as c:
-        one(c, "SELECT id FROM portals WHERE id=?", (portal_id,))
-        return allrows(c, """SELECT * FROM notifications WHERE recipient_id=? AND portal_id=?
-                             ORDER BY created_at DESC LIMIT 100""", (current["id"], portal_id))
+        return allrows(c, """SELECT * FROM notifications WHERE recipient_id=? AND portal_id='library'
+                             ORDER BY created_at DESC LIMIT 100""", (current["id"],))
 
 
 @router.post("/me/notifications/{notification_id}/read")
 def read_notification(notification_id: str, current=Depends(actor)):
     with transaction() as c:
         updated = c.execute("""UPDATE notifications SET is_read=1
-                               WHERE id=? AND recipient_id=?""",
+                               WHERE id=? AND recipient_id=? AND portal_id='library'""",
                             (notification_id, current["id"]))
         if not updated.rowcount:
             fail(404, "NOT_FOUND", "Уведомление не найдено.")
