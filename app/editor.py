@@ -528,11 +528,16 @@ def update_field(field_id: str, body: dict, current=Depends(actor)):
         new_mode = body.get("selection_mode", old["selection_mode"])
         if old["used_ever"] and (new_type != old["field_type"] or new_mode != old["selection_mode"]):
             fail(409, "USED_FIELD_IMMUTABLE", "Тип использованного поля нельзя менять.")
-        if new_type != old["field_type"] or new_mode != old["selection_mode"]:
-            fail(422, "FIELD_TYPE_IMMUTABLE", "Для смены типа создайте новое поле.")
-        c.execute("UPDATE category_fields SET name=? WHERE id=?",
-                  (plain(body.get("name", old["name"]), 150), field_id))
-        audit(c, current, "field.rename", "category_field", field_id, old, body)
+        if new_type not in ("string", "rich_text", "number", "range", "boolean", "choice"):
+            fail(422, "INVALID_FIELD_TYPE", "Неизвестный тип поля.")
+        if new_type == "choice":
+            if new_mode not in ("single", "multiple"):
+                fail(422, "INVALID_SELECTION_MODE", "Укажите single или multiple.")
+        else:
+            new_mode = None
+        c.execute("UPDATE category_fields SET name=?,field_type=?,selection_mode=? WHERE id=?",
+                  (plain(body.get("name", old["name"]), 150), new_type, new_mode, field_id))
+        audit(c, current, "field.update", "category_field", field_id, old, body)
     return {"id": field_id}
 
 
