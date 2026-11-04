@@ -151,7 +151,10 @@ async function adminCodes(area) {
         if(!jurisdiction.value)throw Error("Выберите юрисдикцию.");
         const newCode=await api("/codes",{method:"POST",body:{
             name,abbreviation,jurisdiction_id:jurisdiction.value,
-            hierarchy_template:hierarchy.value}});
+            hierarchy_template:hierarchy.value,
+            publication_issuer:publicationIssuer.value.trim(),
+            publication_reference:publicationReference.value.trim(),
+            published_at:publishedAt.value}});
         allCodes=await api("/codes");
         notify("Кодекс «"+name+"» создан. Теперь можно добавлять части, разделы и статьи.");
         go("/codes/"+newCode.id);
@@ -179,6 +182,21 @@ async function adminCodes(area) {
         adminField("Краткое обозначение",abbr),
         adminField("Уровень законодательства *",jurisdiction));
     form.form.prepend(topFields,adminField("Начальная структура",hierarchy));
+    const publication=el("details","code-publication-fields");
+    publication.append(el("summary","","Необязательно: сведения о публикации кодекса"));
+    const publicationGrid=el("div","admin-create-grid");
+    const publicationIssuer=adminInput("","Издавший орган");
+    publicationIssuer.maxLength=200;
+    const publicationReference=adminInput("","Регистрационный номер, источник");
+    publicationReference.maxLength=250;
+    const publishedAt=adminInput("");
+    publishedAt.type="date";
+    publishedAt.setAttribute("aria-label","Дата официальной публикации");
+    publicationGrid.append(adminField("Издавший орган",publicationIssuer),
+        adminField("Реквизиты публикации",publicationReference),
+        adminField("Дата публикации",publishedAt));
+    publication.append(publicationGrid);
+    form.form.insertBefore(publication,form.footer);
     const hint=el("p","admin-inline-hint",
         "Выбранные типы уровней можно изменять позже. Статьи разрешено размещать прямо в корне кодекса.");
     form.form.insertBefore(hint,form.footer);
@@ -213,6 +231,42 @@ async function adminCodes(area) {
         actions.append(adminLink("Открыть кодекс","/codes/"+c.id),
             adminLink("Настроить иерархию","/admin/hierarchy?code="+c.id));
         item.append(actions);
+        const meta=el("details","code-metadata-editor");
+        meta.append(el("summary","","Изменить название и сведения о публикации"));
+        const edit=adminForm(async()=>{
+            const nextName=rename.value.trim();
+            if(!nextName)throw Error("Введите название кодекса.");
+            await api("/codes/"+c.id,{method:"PATCH",body:{
+                name:nextName,abbreviation:shortName.value.trim(),
+                publication_issuer:issuer.value.trim(),
+                publication_reference:reference.value.trim(),
+                published_at:date.value
+            }});
+            allCodes=await api("/codes");
+            notify("Сведения кодекса сохранены.");
+            go("/admin/codes");
+        });
+        edit.save.textContent="Сохранить сведения";
+        const rename=adminInput(c.name,"Название кодекса");
+        rename.required=true;
+        rename.maxLength=200;
+        const shortName=adminInput(c.abbreviation||"","Краткое обозначение");
+        shortName.maxLength=40;
+        const issuer=adminInput(c.publication_issuer||"","Издавший орган");
+        issuer.maxLength=200;
+        const reference=adminInput(c.publication_reference||"","Номер официального документа");
+        reference.maxLength=250;
+        const date=adminInput(c.published_at||"");
+        date.type="date";
+        const metadata=el("div","code-metadata-grid");
+        metadata.append(adminField("Название",rename),
+            adminField("Сокращение",shortName),
+            adminField("Издавший орган",issuer),
+            adminField("Реквизиты публикации",reference),
+            adminField("Дата публикации",date));
+        edit.form.prepend(metadata);
+        meta.append(edit.form);
+        item.append(meta);
         codeGrid.append(item);
     });
     listing.append(codeGrid);
