@@ -10,6 +10,10 @@ const dialog = document.getElementById("editorDialog");
 const editorForm = document.getElementById("articleForm");
 const toastElement = document.getElementById("toast");
 const role = sessionStorage.getItem("sas-demo-role") || "";
+let authMode="demo";
+let oidcToken=sessionStorage.getItem("sas-oidc-token")||"";
+let oidcConfig=null;
+let authButton=null;
 const CATEGORY_NAMES = {accusation:"Обвинение",punishment_measure:"Мера наказания",
   aggravating:"Отягчающие обстоятельства",mitigating:"Смягчающие обстоятельства",
   auxiliary:"Вспомогательная мера",definition:"Определение"};
@@ -61,7 +65,8 @@ function notify(message) {
 async function api(path, options) {
     const opts = Object.assign({method:"GET"}, options || {});
     const headers = Object.assign({"Accept":"application/json"}, opts.headers || {});
-    if (role) headers["X-Demo-User"] = role;
+    if (authMode==="demo" && role) headers["X-Demo-User"] = role;
+    if (authMode==="oidc" && oidcToken) headers["Authorization"]="Bearer "+oidcToken;
     if (opts.body && typeof opts.body !== "string") {
         headers["Content-Type"] = "application/json";
         opts.body = JSON.stringify(opts.body);
@@ -74,6 +79,11 @@ async function api(path, options) {
     try { result = await response.json(); }
     catch (_) { throw new Error("Ответ сервера не распознан."); }
     if (!response.ok) {
+        if(response.status===401 && authMode==="oidc" && oidcToken){
+            oidcToken="";
+            sessionStorage.removeItem("sas-oidc-token");
+            if(authButton)authButton.textContent="Войти";
+        }
         const message = result.error && result.error.message || "Ошибка запроса";
         const error = new Error(message);
         error.code = result.error && result.error.code;
@@ -1360,14 +1370,15 @@ async function renderRoute(path, options) {
     codeNav.replaceChildren();
     refreshGlobalNav();
     if (!currentUser) {
-        if (!role) {
+        if (authMode==="oidc" ? !oidcToken : !role) {
             if (pathname === "/" || pathname === "/laws") {
                 await home(true);
             } else {
                 pageHeading("Доступ к правовым ресурсам", "Требуется вход",
                     "Для поиска и просмотра правовых текстов выберите роль в верхней панели.");
                 const button = el("button", "button primary", "Выбрать роль");
-                button.onclick = () => roleSelect.focus();
+                button.onclick = () => authMode==="oidc" && authButton ?
+                    authButton.click() : roleSelect.focus();
                 main.append(button);
             }
             return;
@@ -1682,4 +1693,84 @@ async function exitEditor() {
 document.getElementById("closeEditor").onclick=()=>exitEditor();
 dialog.addEventListener("cancel",event=>{event.preventDefault();exitEditor();});
 window.addEventListener("beforeunload",event=>{if(editorDirty){event.preventDefault();event.returnValue="";}});
-renderRoute(location.pathname,{restore:true}).catch(showError);
+function toBase64Url(bytes) {
+    let binary="";
+    bytes.forEach(byte=>binary+=String.fromCharCode(byte));
+    return btoa(binary).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+}
+async function beginExternalLogin() {
+    if(!oidcConfig || oidcConfig.mode!=="oidc")return;
+    const verifier=toBase64Url(crypto.getRandomValues(new Uint8Array(32)));
+    const state=toBase64Url(crypto.getRandomValues(new Uint8Array(24)));
+    const hashed=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(verifier));
+    const challenge=toBase64Url(new Uint8Array(hashed));
+    sessionStorage.setItem("sas-oidc-verifier",verifier);
+    sessionStorage.setItem("sas-oidc-state",state);
+    sessionStorage.setItem("sas-oidc-return",location.pathname+location.search);
+    const destination=new URL(oidcConfig.authorization_url);
+    destination.searchParams.set("response_type","code");
+    destination.searchParams.set("client_id",oidcConfig.client_id);
+    destination.searchParams.set("redirect_uri",oidcConfig.redirect_uri);
+    destination.searchParams.set("scope",oidcConfig.scope);
+    destination.searchParams.set("state",state);
+    destination.searchParams.set("code_challenge",challenge);
+    destination.searchParams.set("code_challenge_method","S256");
+    location.assign(destination.toString());
+}
+async function setupExternalLogin(config) {
+    oidcConfig=config;
+    authMode=config.mode;
+    if(config.mode!=="oidc")return;
+    roleSelect.hidden=true;
+    const label=document.querySelector('label[for="roleSelect"]');
+    if(label)label.hidden=true;
+    authButton=el("button","button ghost",oidcToken?"Выйти":"Войти");
+    authButton.type="button";authButton.id="externalAuthButton";
+    authButton.onclick=()=>{
+        if(oidcToken){
+            sessionStorage.removeItem("sas-oidc-token");
+            oidcToken="";
+            currentUser=null;
+            location.assign("/");
+        }else beginExternalLogin().catch(error=>notify(error.message));
+    };
+    document.querySelector(".header-actions").insertBefore(authButton,
+        document.getElementById("notifyButton"));
+    const url=new URL(location.href);
+    if(url.searchParams.has("error")){
+        const error=url.searchParams.get("error_description")||"Внешний провайдер отклонил вход.";
+        history.replaceState({scrollY:0},"",url.pathname);
+        throw Error(error);
+    }
+    if(url.searchParams.has("code")){
+        const expected=sessionStorage.getItem("sas-oidc-state");
+        const verifier=sessionStorage.getItem("sas-oidc-verifier");
+        const code=url.searchParams.get("code");
+        const state=url.searchParams.get("state");
+        const destination=sessionStorage.getItem("sas-oidc-return")||"/";
+        sessionStorage.removeItem("sas-oidc-state");
+        sessionStorage.removeItem("sas-oidc-verifier");
+        sessionStorage.removeItem("sas-oidc-return");
+        history.replaceState({scrollY:0},"",url.pathname);
+        if(!state || !expected || state!==expected || !verifier){
+            throw Error("Проверка безопасности внешнего входа не пройдена.");
+        }
+        const result=await api("/auth/token",{method:"POST",
+            body:{code,code_verifier:verifier}});
+        oidcToken=result.access_token;
+        sessionStorage.setItem("sas-oidc-token",oidcToken);
+        authButton.textContent="Выйти";
+        history.replaceState({scrollY:0},"",destination.startsWith("/")?destination:"/");
+    }
+}
+async function bootstrapLibrary() {
+    try {
+        const response=await fetch("/api/v1/auth/config",{headers:{Accept:"application/json"}});
+        const data=await response.json();
+        if(!response.ok)throw Error(data.error&&data.error.message||"Ошибка настройки авторизации.");
+        await setupExternalLogin(data);
+        await renderRoute(location.pathname,{restore:true});
+    }catch(error){showError(error);}
+}
+bootstrapLibrary();
+
