@@ -187,7 +187,7 @@ function showError(err) {
     main.replaceChildren();
     pageHeading("Ошибка", "Не удалось открыть ресурс", err.message || "Ошибка загрузки");
     if (err.code === "AUTH_REQUIRED") {
-        const p = el("p", "notice", "Для чтения полного текста требуется вход. В локальной сборке выберите тестовую роль вверху страницы.");
+        const p = el("p", "notice", "Для чтения полного текста требуется вход. Выберите роль в верхней панели.");
         main.append(p);
     }
     const back = el("button", "button", "На главную");
@@ -322,7 +322,7 @@ async function home(guest = false) {
     inner.append(quick);
     if (guest) {
         const login = el("div", "hero-guest",
-            "Для просмотра текстов выберите тестовую роль в верхней панели. Сведения о законах доступны после входа.");
+            "Для просмотра текстов выберите роль в верхней панели. Сведения о законах доступны после входа.");
         inner.append(login);
     }
     hero.append(inner);
@@ -645,7 +645,7 @@ function createArticleCard(a) {
     actions.append(open);
     const copy = el("button", "button subtle", "Копировать цитату");
     copy.onclick = () => {
-        navigator.clipboard.writeText("Статья " + a.number + " «" + a.title + "». " +
+        navigator.clipboard.writeText("Статья " + a.number + " «" + displayLegalTitle(a.title) + "». " +
             location.origin + "/articles/" + a.id).then(() => notify("Юридическая ссылка скопирована."))
             .catch(() => notify("Не удалось скопировать ссылку."));
     };
@@ -921,7 +921,7 @@ async function openSection(codeId, nodeId, targetId, options, serial) {
             cursor = cursor.parent_id && treeData.nodes.find(n => n.id === cursor.parent_id);
         }
         ancestors.forEach((n,index) => trail.push({
-            label: n.number + " · " + n.title,
+            label: n.number + " · " + displayLegalTitle(n.title),
             href: index < ancestors.length - 1 ? "/codes/" + codeId + "/nodes/" + n.id : null
         }));
     } else {
@@ -1153,7 +1153,7 @@ async function favoritesPage() {
     if (!items.length) main.append(el("p", "empty", "Вы пока не добавили статьи в избранное."));
     for (const a of items) {
         const item = el("div", "search-result");
-        const link = el("a", "", "Статья " + a.number + " — " + a.title);
+        const link = el("a", "", "Статья " + a.number + " — " + displayLegalTitle(a.title));
         link.href = "/articles/" + a.id; link.dataset.link = "";
         item.append(link);
         const remove = el("button", "button subtle", "Удалить из избранного");
@@ -1256,7 +1256,7 @@ async function precedentPage() {
 }
 async function revisionsPage(id) {
     const a=await api("/articles/"+id);
-    pageHeading("Архив редакций", "История статьи "+a.number, a.title);
+    pageHeading("Архив редакций", "История статьи "+a.number, displayLegalTitle(a.title));
     const list=await api("/articles/"+id+"/revisions");
     list.forEach(r => {
         const box=el("section","panel");
@@ -1419,7 +1419,7 @@ async function renderRoute(path, options) {
                 await home(true);
             } else {
                 pageHeading("Доступ к правовым ресурсам", "Требуется вход",
-                    "Для поиска и просмотра правовых текстов выберите тестовую роль в верхней панели.");
+                    "Для поиска и просмотра правовых текстов выберите роль в верхней панели.");
                 const button = el("button", "button primary", "Выбрать роль");
                 button.onclick = () => roleSelect.focus();
                 main.append(button);
