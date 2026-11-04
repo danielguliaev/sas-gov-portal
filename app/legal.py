@@ -123,6 +123,56 @@ def _paginate(c, code_id, parent_id, limit, cursor, current):
             "has_more": has_more, "next_cursor": next_cursor}
 
 
+@router.get("/codes/{code_id}/structure-index")
+def structure_index(code_id: str, parent_id: str | None = None,
+                    cursor: str | None = None,
+                    limit: int = Query(50, ge=1, le=100), current=Depends(actor)):
+    """Cursor-paginated direct descendants, never the entire hierarchy in one response."""
+    with read_db() as c:
+        one(c, "SELECT id FROM codes WHERE id=? AND status='active'",(code_id,))
+        if parent_id:
+            one(c, """SELECT id FROM structure_nodes WHERE id=? AND code_id=?
+                       AND status='active'""",(parent_id,code_id),
+                "Родительский раздел не найден.")
+        scope=code_id + ":STRUCT:" + (parent_id or "ROOT")
+        position=_cursor(cursor,scope)
+        sql = """WITH children AS (
+            SELECT n.id,n.code_id,n.parent_id,n.type_id,n.number,n.title,n.sort_key,
+                   t.name AS type_name,t.level_order,
+                   (SELECT COUNT(*) FROM structure_nodes child
+                    WHERE child.parent_id=n.id AND child.status='active') AS child_count,
+                   printf('%06d',t.level_order) || ':' || t.id || ':' ||
+                   CASE WHEN m.mode='manual'
+                        THEN '0' || printf('%012d',COALESCE(n.manual_order,999999))
+                        ELSE '1' || n.sort_key END AS position
+            FROM structure_nodes n
+            JOIN hierarchy_types t ON t.id=n.type_id AND t.active=1
+            LEFT JOIN sort_modes m
+              ON m.parent_key=n.code_id || ':' || n.parent_key || ':' || n.type_id
+            WHERE n.code_id=? AND n.parent_id IS ? AND n.status='active'
+          )
+          SELECT * FROM children WHERE (? IS NULL OR position>? OR
+             (position=? AND id>?))
+          ORDER BY position,id LIMIT ?"""
+        position_sort=position[0] if position else None
+        position_id=position[1] if position else None
+        rows=allrows(c,sql,(code_id,parent_id,position_sort,position_sort,
+                            position_sort,position_id,limit+1))
+        has_more=len(rows)>limit
+        rows=rows[:limit]
+        next_cursor=None
+        if has_more and rows:
+            last=rows[-1]
+            next_cursor=base64.urlsafe_b64encode(dumps({
+                "scope":scope,"sort":last["position"],"id":last["id"]
+            }).encode()).decode().rstrip("=")
+        return {"items":[{"id":r["id"],"code_id":r["code_id"],
+                "parent_id":r["parent_id"],"type_id":r["type_id"],
+                "type_name":r["type_name"],"number":r["number"],"title":r["title"],
+                "child_count":r["child_count"]} for r in rows],
+                "has_more":has_more,"next_cursor":next_cursor}
+
+
 @router.get("/codes/{code_id}/root/article-index")
 def root_article_index(code_id: str, cursor: str | None = None,
                        limit: int = Query(100, ge=1, le=200), current=Depends(actor)):
