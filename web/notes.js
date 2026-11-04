@@ -41,17 +41,16 @@ function attachArticleAnnotations(card,article,textBlock) {
             notify("Сначала выделите фрагмент текста статьи.");
             return;
         }
+        // Range.toString() may introduce visual line breaks between HTML blocks.
+        // The server anchors against text nodes concatenated as browser textContent.
         const from=document.createRange();
         from.selectNodeContents(textBlock);
         from.setEnd(lastRange.startContainer,lastRange.startOffset);
-        const start=from.toString().length;
-        const quote=lastRange.toString();
-        // Use the exact visible substring to match the revision's textual anchor.
+        const start=from.cloneContents().textContent.length;
+        const selected=lastRange.cloneContents().textContent||"";
         const plain=textBlock.textContent||"";
-        const check=plain.slice(start,start+quote.length);
-        const selected=check===quote?quote:quote.trim();
-        if(!selected||selected.length>1000){
-            notify("Выберите фрагмент текста длиной до 1000 символов.");
+        if(!selected || selected.length>1000 || plain.slice(start,start+selected.length)!==selected){
+            notify("Выделенный фрагмент нельзя надёжно сопоставить с текстом редакции.");
             return;
         }
         const note=prompt("Научное примечание к выделенному фрагменту:");
