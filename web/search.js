@@ -190,3 +190,24 @@ async function advancedSearchPage() {
     form.onsubmit=event=>{event.preventDefault();draw(true);};
     await draw(false);
 }
+
+async function archivedArticlePage(article){
+    if(!isLawyer())throw Error("Архивные статьи доступны юристам и суперадминистратору.");
+    const code=allCodes.find(c=>c.id===article.code_id);
+    main.append(breadcrumb([{label:"Каталог кодексов",href:"/laws"},
+        {label:code?code.name:"Кодекс",href:"/codes/"+article.code_id},
+        {label:"Архив · статья "+article.number}]));
+    pageHeading("Архив правовых текстов","Статья "+article.number+" · "+displayLegalTitle(article.title),
+        "Архивная статья не входит в действующий консолидированный текст кодекса.");
+    const panel=el("section","article-card archived-article");
+    panel.append(el("p","archive-status","Архивный статус: исключена из действующего законодательства"));
+    const body=el("div","article-text");
+    body.innerHTML=article.text_rich||"<p>Текст не указан.</p>";
+    panel.append(body);
+    const actions=el("div","article-actions");
+    const revisions=adminLink("История редакций","/revisions/"+article.id);
+    actions.append(revisions);
+    if(isAdmin())actions.append(adminLink("Восстановление через архив","/admin/archive"));
+    panel.append(actions);
+    main.append(panel);
+}
