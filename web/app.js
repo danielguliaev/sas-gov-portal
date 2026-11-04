@@ -547,77 +547,136 @@ function appendArticleIndex(container, endpoint) {
     fetchNext();
 }
 function renderCodeNav(code, selectedNode, directTarget) {
+    // Each expansion fetches a bounded page of direct child nodes. The sidebar
+    // never needs the entire hierarchy or full legal article bodies.
     codeNav.replaceChildren();
-    const header = el("a", "tree-code-name", code.name);
-    header.href = "/codes/" + code.id;
-    header.dataset.link = "";
-    if (!selectedNode && location.pathname === header.getAttribute("href")) header.classList.add("active");
-    codeNav.append(header);
-    const root = el("div", "code-tree-root");
-    const pendingIndexes = [];
-    const state = treeStorage(code.id);
-    const ancestors = new Set();
-    if (selectedNode) {
-        let parent = selectedNode;
-        while (parent) {
-            ancestors.add(parent);
-            const n = treeData.nodes.find(x => x.id === parent);
-            parent = n && n.parent_id;
-        }
-    }
-    function entry(n, depth, parentContainer) {
-        const wrap = el("div", "code-tree-node");
-        const line = el("div", "tree-entry");
-        const children = directChildren(treeData.nodes, n.id);
-        const selected = selectedNode === n.id;
-        const toggle = el("button", "tree-toggle", children.length || selected ? "▸" : "·");
-        toggle.type = "button";
-        toggle.disabled = !(children.length || selected);
-        toggle.setAttribute("aria-label", "Развернуть " + displayLegalTitle(n.title));
-        const dest = "/codes/" + code.id + "/nodes/" + n.id;
-        const type = treeData.types.find(t => t.id === n.type_id);
-        const typeName = type ? type.name + " " : "";
-        const link = el("a", "nav-item", typeName + n.number + " · " + displayLegalTitle(n.title));
-        link.href = dest;
-        link.dataset.link = "";
-        link.dataset.nodeId = n.id;
-        if (selected) link.classList.add("active");
-        line.append(toggle, link);
-        wrap.append(line);
-        const branch = el("div", "tree-branch");
-        let opened = state.expanded.includes(n.id) || selected ||
-                     (ancestors.has(n.id) && (directTarget || !state.suppressed.includes(n.id)));
-        function update() {
-            branch.hidden = !opened;
-            toggle.textContent = opened ? "▾" : "▸";
-            toggle.setAttribute("aria-expanded", String(opened));
-        }
-        update();
-        toggle.onclick = () => {
-            opened = !opened;
-            state.expanded = state.expanded.filter(x => x !== n.id);
-            state.suppressed = state.suppressed.filter(x => x !== n.id);
-            (opened ? state.expanded : state.suppressed).push(n.id);
-            saveTreeStorage(code.id, state);
-            update();
-        };
-        children.forEach(child => entry(child, depth + 1, branch));
-        if (selected) {
-            const current = el("div", "article-index");
-            current.id = "articleIndex";
-            branch.append(current);
-            pendingIndexes.push([current, "/nodes/" + n.id + "/article-index"]);
-        }
-        if (children.length || selected) wrap.append(branch);
-        parentContainer.append(wrap);
-    }
-    directChildren(treeData.nodes, null).forEach(n => entry(n, 0, root));
-    const topLevelArticles = el("div", "article-index root-article-index");
-    if (!selectedNode) topLevelArticles.id = "articleIndex";
+    const header=el("a","tree-code-name",code.name);
+    header.href="/codes/"+code.id;
+    header.dataset.link="";
+    if(!selectedNode && location.pathname===header.getAttribute("href"))header.classList.add("active");
+    const root=el("div","code-tree-root");
+    codeNav.append(header,root);
+    const state=treeStorage(code.id);
+    const path=(treeData && treeData.ancestors || []);
+    const pathIds=path.map(n=>n.id);
+    const pathSet=new Set(pathIds);
+    const topLevelArticles=el("div","article-index root-article-index");
+    if(!selectedNode)topLevelArticles.id="articleIndex";
     root.append(topLevelArticles);
-    codeNav.append(root);
-    pendingIndexes.forEach(([container,endpoint]) => appendArticleIndex(container,endpoint));
-    appendArticleIndex(topLevelArticles, "/codes/" + code.id + "/root/article-index");
+
+    function loadChildren(parentId,container,requiredId) {
+        let cursor=null,finished=false,busy=false;
+        const seen=new Set();
+        const more=el("button","nav-index-more","Показать следующие разделы");
+        more.type="button";
+        const destination=container.firstElementChild;
+        if(destination)container.insertBefore(more,destination);
+        else container.append(more);
+        async function page() {
+            if(finished||busy||!root.isConnected)return;
+            busy=true;
+            more.disabled=true;more.textContent="Загрузка разделов…";
+            try{
+                const params=new URLSearchParams({limit:"50"});
+                if(parentId)params.set("parent_id",parentId);
+                if(cursor)params.set("cursor",cursor);
+                const result=await api("/codes/"+code.id+"/structure-index?"+params);
+                if(!root.isConnected)return;
+                result.items.forEach(node=>{
+                    seen.add(node.id);
+                    container.insertBefore(entry(node),more);
+                });
+                cursor=result.next_cursor;
+                finished=!result.has_more;
+                more.hidden=finished;
+                if(!finished)more.textContent="Показать следующие разделы";
+                if(!result.items.length && finished)more.remove();
+            }catch(error){
+                more.hidden=false;
+                more.textContent="Повторить загрузку разделов";
+                more.title=error.message;
+            }finally{
+                busy=false;
+                more.disabled=false;
+            }
+        }
+        more.onclick=page;
+        async function ensure() {
+            await page();
+            // The path to a deep-linked article may lie beyond the first 50
+            // siblings. Load only as far as necessary to reach that branch.
+            while(requiredId && !seen.has(requiredId) && !finished &&
+                  more.textContent!=="Повторить загрузку разделов" &&
+                  root.isConnected) {
+                await page();
+            }
+        }
+        return {ensure};
+    }
+    function entry(node) {
+        const wrap=el("div","code-tree-node");
+        const line=el("div","tree-entry");
+        const selected=node.id===selectedNode;
+        const type=treeData.types.find(t=>t.id===node.type_id);
+        const caption=(type?type.name+" ":node.type_name?node.type_name+" ":"")+
+            node.number+" · "+displayLegalTitle(node.title);
+        const link=el("a","nav-item",caption);
+        link.href="/codes/"+code.id+"/nodes/"+node.id;
+        link.dataset.link="";link.dataset.nodeId=node.id;
+        if(selected)link.classList.add("active");
+        const hasBranches=Number(node.child_count||0)>0||pathSet.has(node.id)||selected;
+        const toggle=el("button","tree-toggle","▸");
+        toggle.type="button";
+        toggle.disabled=!hasBranches;
+        toggle.setAttribute("aria-label","Развернуть "+displayLegalTitle(node.title));
+        line.append(toggle,link);
+        wrap.append(line);
+        if(hasBranches){
+            const branch=el("div","tree-branch");
+            wrap.append(branch);
+            const index=selected?el("div","article-index"):null;
+            const childOnPath=pathIds[pathIds.indexOf(node.id)+1]||null;
+            const children=Number(node.child_count||0)>0?
+                loadChildren(node.id,branch,childOnPath):null;
+            if(index){
+                index.id="articleIndex";
+                branch.append(index);
+            }
+            let expanded=state.expanded.includes(node.id)||selected||
+                (pathSet.has(node.id) && (directTarget||!state.suppressed.includes(node.id)));
+            let launched=false;
+            function paint(){
+                branch.hidden=!expanded;
+                toggle.textContent=expanded?"▾":"▸";
+                toggle.setAttribute("aria-expanded",String(expanded));
+            }
+            function loadExpanded() {
+                if(!expanded||launched)return;
+                launched=true;
+                Promise.resolve().then(async()=>{
+                    if(!root.isConnected)return;
+                    if(children)await children.ensure();
+                    if(index && index.isConnected)
+                        appendArticleIndex(index,"/nodes/"+node.id+"/article-index");
+                }).catch(error=>notify(error.message));
+            }
+            toggle.onclick=()=>{
+                expanded=!expanded;
+                state.expanded=state.expanded.filter(x=>x!==node.id);
+                state.suppressed=state.suppressed.filter(x=>x!==node.id);
+                (expanded?state.expanded:state.suppressed).push(node.id);
+                saveTreeStorage(code.id,state);
+                paint();
+                loadExpanded();
+            };
+            paint();
+            loadExpanded();
+        }
+        return wrap;
+    }
+    const initial=loadChildren(null,root,pathIds[0]||null);
+    initial.ensure().catch(error=>notify(error.message));
+    appendArticleIndex(topLevelArticles,"/codes/"+code.id+"/root/article-index");
 }
 function highlightSidebar(articleId) {
     if (!reading) return;
