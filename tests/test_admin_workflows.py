@@ -261,3 +261,43 @@ def test_standalone_normative_act_publication_archive_and_stable_id(client,heade
     assert restored.status_code==200,restored.text
     assert restored.json()["id"]==aid
     assert client.get(url("/library/acts/"+aid),headers=headers["user"]).status_code==200
+
+
+def test_generic_oidc_pkce_exchange_uses_fixed_configured_provider(client,monkeypatch):
+    import json
+    import app.auth as auth
+    monkeypatch.setattr(auth,"AUTH_MODE","oidc")
+    for key,value in (
+        ("OIDC_AUTHORIZATION_URL","https://identity.example.org/oauth2/authorize"),
+        ("OIDC_TOKEN_URL","https://identity.example.org/oauth2/token"),
+        ("OIDC_CLIENT_ID","library-client"),
+        ("OIDC_REDIRECT_URI","https://library.example.org/"),
+    ):
+        monkeypatch.setenv(key,value)
+    cfg=client.get(url("/auth/config"))
+    assert cfg.status_code==200,cfg.text
+    assert cfg.json()["mode"]=="oidc"
+    assert "token_url" not in cfg.json()
+    invalid=client.post(url("/auth/token"),json={"code":"abc","code_verifier":"short"})
+    assert invalid.status_code==422
+    captured={}
+    class FakeResponse:
+        status=200
+        def read(self,n=0):
+            return json.dumps({"access_token":"jwt-access-token","expires_in":1800}).encode()
+        def __enter__(self):return self
+        def __exit__(self,*args):pass
+    def fake_urlopen(req,timeout=0):
+        captured["url"]=req.full_url
+        captured["body"]=req.data.decode()
+        return FakeResponse()
+    monkeypatch.setattr(auth,"urlopen",fake_urlopen)
+    ok=client.post(url("/auth/token"),json={
+        "code":"sample-code","code_verifier":"a"*43,
+        "redirect_uri":"https://evil.example/changed"})
+    assert ok.status_code==200,ok.text
+    assert ok.json()=={"access_token":"jwt-access-token",
+                       "token_type":"Bearer","expires_in":1800}
+    assert captured["url"]=="https://identity.example.org/oauth2/token"
+    assert "https%3A%2F%2Flibrary.example.org%2F" in captured["body"]
+    assert "evil.example" not in captured["body"]
