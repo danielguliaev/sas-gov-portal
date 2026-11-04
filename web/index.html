@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#142c47">
-  <meta name="description" content="Законодательная библиотека штата Сан-Андреас — демонстрационный государственный портал">
-  <title>Законодательная библиотека · Сан-Андреас</title>
+  <meta name="description" content="Правовая библиотека штата Сан Андреас — собрание законов и правовых актов">
+  <title>Правовая библиотека штата Сан Андреас</title>
   <link rel="stylesheet" href="/static/style.css">
   <link rel="stylesheet" href="/static/laws.css">
   <script defer src="/static/app.js"></script>
@@ -17,8 +17,7 @@
     <div class="header-inner">
       <button id="menuToggle" class="icon-button menu-toggle" type="button" aria-label="Открыть навигацию" aria-expanded="false" aria-controls="sidebar">☰</button>
       <a class="brand" href="/" data-link>
-        <span class="seal" aria-hidden="true">SA</span>
-        <span class="brand-text"><strong>Штат Сан-Андреас</strong><small>Законодательная библиотека</small></span>
+<span class="brand-text"><strong>Правовая библиотека</strong><small>штата Сан Андреас</small></span>
       </a>
       <nav class="header-nav" aria-label="Разделы правового портала">
         <a href="/" data-link>Обзор</a>
@@ -26,21 +25,17 @@
         <a href="/search" data-link>Поиск</a>
       </nav>
       <div class="header-actions">
-        <label class="header-label" for="roleSelect">Тестовый вход</label>
+        <label class="header-label" for="roleSelect">Роль пользователя</label>
         <select id="roleSelect" aria-label="Тестовая роль">
           <option value="">Выбрать роль</option>
           <option value="user">Читатель</option>
           <option value="lawyer">Юрист</option>
           <option value="superadmin">Суперадминистратор</option>
-          <option value="editor">Редактор библиотеки</option>
-          <option value="publisher">Издатель портала</option>
-          <option value="legislator">Законодатель</option>
         </select>
         <button id="notifyButton" class="icon-button" aria-label="Уведомления" title="Уведомления">♧</button>
       </div>
     </div>
   </header>
-  <div class="demo-banner" role="note">Демонстрационная система ролевого мира. Примеры статей и документов не являются действующими правовыми нормами.</div>
   <div class="layout" id="layout">
     <aside class="sidebar" id="sidebar" aria-label="Навигация по законодательству">
       <div class="sidebar-heading">ПРАВОВЫЕ РЕСУРСЫ</div>
@@ -58,8 +53,8 @@
     </main>
   </div>
   <footer class="site-footer">
-    <div>© Законодательная библиотека штата Сан-Андреас · Демонстрационный портал</div>
-    <div class="footer-links"><a href="/laws" data-link>Реестр законов</a><a href="/search" data-link>Поиск статей</a><a href="/docs">Документация API</a></div>
+    <div>Copyright © 2026 State of San Andreas</div>
+    <div class="footer-links"><a href="/laws" data-link>Реестр законов</a><a href="/search" data-link>Поиск статей</a></div>
   </footer>
   <dialog id="editorDialog" aria-labelledby="editorTitle">
     <div class="dialog-header"><h2 id="editorTitle">Редактор статьи</h2><button id="closeEditor" class="icon-button" type="button" aria-label="Закрыть редактор">×</button></div>
