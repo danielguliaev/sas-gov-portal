@@ -400,7 +400,10 @@ def init_database():
         if not c.execute("SELECT 1 FROM schema_migrations WHERE version=2").fetchone():
             c.execute("BEGIN IMMEDIATE")
             try:
-                c.execute((base / "002_revision_labels.sql").read_text().split(";")[0])
+                statement = next(line for line in
+                    (base / "002_revision_labels.sql").read_text().splitlines()
+                    if line.strip().upper().startswith("ALTER TABLE"))
+                c.execute(statement.rstrip(";"))
                 c.execute("INSERT INTO schema_migrations(version) VALUES(2)")
                 c.commit()
             except Exception:
