@@ -418,6 +418,13 @@ async function lawCatalog(preselected = "all") {
     main.append(breadcrumb([{label:"Главная",href:"/"},{label:"Реестр кодексов"}]));
     pageHeading("Правовая библиотека", "Каталог законов и кодексов",
         "Собрание кодексов по юрисдикциям. Выберите источник, чтобы открыть структуру и тексты статей.");
+    if (isAdmin()) {
+        const adminActions=el("div","catalog-admin-actions");
+        const create=el("a","button primary","＋ Создать кодекс");
+        create.href="/admin/codes?new=1";create.dataset.link="";
+        adminActions.append(create);
+        main.append(adminActions);
+    }
     const bar = el("div", "catalog-toolbar");
     const tabs = el("div", "catalog-filters");
     const buttons = {};
