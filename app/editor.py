@@ -507,6 +507,23 @@ def create_category(body: dict, current=Depends(actor)):
     return {"id": cat_id}
 
 
+@router.patch("/categories/{category_id}")
+def update_category(category_id: str, body: dict, current=Depends(actor)):
+    _admin(current)
+    with transaction() as c:
+        old = one(c, "SELECT * FROM categories WHERE id=? AND active=1", (category_id,))
+        name = plain(body.get("name", old["name"]), 150)
+        if not name:
+            fail(422, "INVALID_CATEGORY", "Введите название категории.")
+        exists = maybe(c, """SELECT id FROM categories WHERE name=? AND code_id IS ?
+                          AND active=1 AND id<>?""", (name, old["code_id"], category_id))
+        if exists:
+            fail(409, "DUPLICATE_CATEGORY", "Категория с таким названием уже существует.")
+        c.execute("UPDATE categories SET name=? WHERE id=?", (name, category_id))
+        audit(c, current, "category.update", "category", category_id, old, {"name": name})
+    return {"id": category_id, "name": name}
+
+
 @router.post("/categories/{category_id}/fields")
 def create_field(category_id: str, body: dict, current=Depends(actor)):
     _admin(current)
