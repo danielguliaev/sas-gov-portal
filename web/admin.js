@@ -222,107 +222,325 @@ async function adminCodes(area) {
 
 async function adminCategories(area) {
     const section=adminSection("Категории и пользовательские поля",
-        "Поля необязательны. Использованные поля и варианты выбора защищены от несовместимых изменений.");
-    const scope=adminSelect(allCodes.map(c=>[c.name,c.id]),"","Глобальные и все доступные");
-    section.append(adminField("Просмотр категорий в контексте кодекса",scope));
-    const list=el("div","admin-list");
-    section.append(list);
+        "Настраивайте классификацию законов без работы с длинными техническими формами. Изменения сохраняются отдельно для каждой категории и каждого поля.");
+    section.classList.add("admin-categories-page");
+    const kinds=[
+        ["Текст","string"],["Форматируемый текст","rich_text"],["Число","number"],
+        ["Диапазон","range"],["Да / нет","boolean"],["Выбор из справочника","choice"]
+    ];
+    const names=Object.fromEntries(kinds.map(k=>[k[1],k[0]]));
+    let categories=[];
+    let selectedId=new URLSearchParams(location.search).get("category")||null;
+
+    const toolbar=el("div","category-toolbar");
+    const scope=adminSelect(allCodes.map(c=>[c.name,c.id]),"","Только глобальные категории");
+    scope.id="categoryCodeScope";
+    scope.setAttribute("aria-label","Контекст кодекса");
+    const scopeLabel=adminField("Контекст кодекса",scope);
+    const addCategory=adminButton("＋ Новая категория",()=>{
+        creator.hidden=!creator.hidden;
+        addCategory.setAttribute("aria-expanded",String(!creator.hidden));
+        if(!creator.hidden)newCategory.focus();
+    },"primary");
+    addCategory.id="addCategoryButton";
+    addCategory.setAttribute("aria-controls","categoryCreator");
+    addCategory.setAttribute("aria-expanded","false");
+    toolbar.append(scopeLabel,addCategory);
+    section.append(toolbar);
+
+    const creator=el("div","category-new-panel");
+    creator.id="categoryCreator";
+    creator.hidden=true;
     const create=adminForm(async()=>{
-        if(!newCategory.value.trim())throw Error("Введите название категории.");
-        await api("/categories",{method:"POST",body:{
-            name:newCategory.value.trim(),code_id:scope.value||null}});
-        await render();
+        const name=newCategory.value.trim();
+        if(!name)throw Error("Введите название категории.");
+        const added=await api("/categories",{method:"POST",body:{
+            name,code_id:scope.value||null}});
+        newCategory.value="";
+        creator.hidden=true;
+        addCategory.setAttribute("aria-expanded","false");
+        await refresh(added.id);
+        notify("Категория создана.");
     });
-    const newCategory=adminInput("","Новая категория");
-    create.form.prepend(adminField("Создать категорию",newCategory));
-    section.append(create.form);
-    async function render() {
-        const cats=await api("/categories"+(scope.value?"?code_id="+encodeURIComponent(scope.value):""));
-        list.replaceChildren();
-        cats.forEach(cat=>{
-            const item=el("section","admin-subpanel");
-            const heading=el("div","admin-list-row");
-            heading.append(el("h3","",cat.name));
-            item.append(heading);
-            const rename=adminForm(async()=>{
-                await api("/categories/"+cat.id,{method:"PATCH",body:{name:title.value.trim()}});
-                await render();
-            });
-            const title=adminInput(cat.name);title.required=true;
-            rename.form.prepend(adminField("Название категории",title));
-            rename.save.textContent="Переименовать";
-            item.append(rename.form);
-            const fields=cat.fields||[];
-            fields.forEach(field=>{
-                const fieldBox=el("div","admin-field-card");
-                const editor=adminForm(async()=>{
-                    await api("/category-fields/"+field.id,{method:"PATCH",body:{
-                        name:fieldName.value.trim(),field_type:fieldType.value,
-                        selection_mode:fieldType.value==="choice"?selection.value:null}});
-                    await render();
-                });
-                const fieldName=adminInput(field.name);
-                const fieldType=adminSelect([
-                    ["Текст","string"],["Форматируемый текст","rich_text"],
-                    ["Число","number"],["Диапазон","range"],
-                    ["Да/нет","boolean"],["Выбор","choice"]],field.field_type);
-                const selection=adminSelect([["Один","single"],["Несколько","multiple"]],
-                    field.selection_mode||"single");
-                const fieldsRow=el("div","admin-grid");
-                fieldsRow.append(adminField("Название поля",fieldName),
-                    adminField("Тип",fieldType),adminField("Выбор",selection));
-                selection.disabled=fieldType.value!=="choice";
-                fieldType.onchange=()=>selection.disabled=fieldType.value!=="choice";
-                editor.save.textContent="Сохранить поле";
-                editor.form.prepend(fieldsRow);
-                fieldBox.append(editor.form);
-                if(field.field_type==="choice"){
-                    const optionList=el("div","admin-options");
-                    (field.options||[]).forEach(opt=>{
-                        const row=el("div","admin-option");
-                        const input=adminInput(opt.name);
-                        const toggle=el("input");toggle.type="checkbox";toggle.checked=!!opt.active;
-                        row.append(input,adminField("Доступен для новых выборов",toggle),
-                            adminButton("Применить",()=>adminSafe(async()=>{
-                                await api("/field-options/"+opt.id,{method:"PATCH",
-                                    body:{name:input.value.trim(),active:toggle.checked}});
-                                await render();
-                            })));
-                        optionList.append(row);
-                    });
-                    const name=adminInput("","Добавить значение");
-                    const add=adminButton("Добавить вариант",()=>adminSafe(async()=>{
-                        if(!name.value.trim())throw Error("Введите вариант.");
-                        await api("/category-fields/"+field.id+"/options",{method:"POST",
-                            body:{name:name.value.trim()}});
-                        await render();
-                    }));
-                    fieldBox.append(optionList,name,add);
-                }
-                item.append(fieldBox);
-            });
-            const make=adminForm(async()=>{
-                await api("/categories/"+cat.id+"/fields",{method:"POST",
-                    body:{name:fname.value.trim(),field_type:kind.value,
-                    selection_mode:kind.value==="choice"?selectMode.value:null}});
-                await render();
-            });
-            const fname=adminInput("","Название нового поля");
-            const kind=adminSelect([["Текст","string"],["Форматируемый текст","rich_text"],
-                ["Число","number"],["Диапазон","range"],["Да/нет","boolean"],["Выбор","choice"]],"string");
-            const selectMode=adminSelect([["Один","single"],["Несколько","multiple"]],"single");
-            selectMode.disabled=true;
-            kind.onchange=()=>selectMode.disabled=kind.value!=="choice";
-            make.save.textContent="Добавить поле";
-            make.form.prepend(adminField("Новое поле",fname),adminField("Тип",kind),
-                adminField("Режим выбора",selectMode));
-            item.append(make.form);
-            list.append(item);
+    create.form.id="newCategoryForm";
+    create.save.textContent="Создать категорию";
+    const newCategory=adminInput("","Например: Особые условия");
+    newCategory.id="newCategoryName";
+    newCategory.required=true;
+    newCategory.maxLength=150;
+    create.form.prepend(el("h3","","Создание категории"),
+        adminField("Название новой категории *",newCategory),
+        adminInfo("Категория будет добавлена "+(scope.value?"в выбранный кодекс.":"во все кодексы как глобальная.")));
+    create.footer.prepend(adminButton("Отмена",()=>{
+        creator.hidden=true;
+        addCategory.setAttribute("aria-expanded","false");
+    }));
+    creator.append(create.form);
+    section.append(creator);
+
+    const workbench=el("div","category-workbench");
+    const sidebar=el("aside","category-sidebar");
+    sidebar.setAttribute("aria-label","Категории законодательства");
+    const sidebarTop=el("div","category-sidebar-top");
+    sidebarTop.append(el("h3","","Категории"));
+    const search=adminInput("","Поиск по названиям");
+    search.id="categorySearch";
+    search.type="search";
+    search.setAttribute("aria-label","Найти категорию");
+    const summary=el("p","category-result-count");
+    sidebarTop.append(search,summary);
+    sidebar.append(sidebarTop);
+    const categoryList=el("div","category-picker");
+    categoryList.id="categoryPicker";
+    sidebar.append(categoryList);
+    const detail=el("section","category-detail");
+    detail.setAttribute("aria-label","Настройки выбранной категории");
+    detail.id="categoryDetail";
+    workbench.append(sidebar,detail);
+    section.append(workbench);
+    area.append(section);
+
+    function filtered() {
+        const phrase=search.value.trim().toLocaleLowerCase("ru-RU");
+        return categories.filter(cat=>cat.name.toLocaleLowerCase("ru-RU").includes(phrase));
+    }
+    function drawList() {
+        categoryList.replaceChildren();
+        const visible=filtered();
+        summary.textContent=visible.length+" из "+categories.length;
+        if(!visible.length){
+            categoryList.append(el("p","category-list-empty",
+                categories.length?"Совпадений нет. Попробуйте другое название.":"Категорий пока нет. Создайте первую."));
+            return;
+        }
+        visible.forEach(cat=>{
+            const button=el("button","category-picker-item");
+            button.type="button";
+            button.dataset.categoryId=cat.id;
+            const selected=cat.id===selectedId;
+            button.classList.toggle("active",selected);
+            button.setAttribute("aria-pressed",String(selected));
+            const label=el("span","category-picker-label",cat.name);
+            const meta=el("span","category-picker-meta");
+            meta.append(el("span","",cat.code_id?"Для кодекса":"Глобальная"),
+                el("span","",String((cat.fields||[]).length)+" полей"));
+            button.append(label,meta);
+            button.onclick=()=>{
+                selectedId=cat.id;
+                drawList();
+                drawDetail();
+            };
+            categoryList.append(button);
         });
     }
-    scope.onchange=()=>adminSafe(render);
-    await render();area.append(section);
+    function optionEditor(option,field) {
+        const row=el("div","category-option-row");
+        row.dataset.optionId=option.id;
+        const name=adminInput(option.name,"Название значения");
+        name.maxLength=200;
+        name.setAttribute("aria-label","Название значения "+option.name);
+        const active=el("input");
+        active.type="checkbox";
+        active.checked=!!option.active;
+        active.setAttribute("aria-label","Доступно для новых выборов: "+option.name);
+        const label=el("label","category-option-active");
+        label.append(active,el("span","","Доступно"));
+        const save=adminButton("Сохранить",()=>adminSafe(async()=>{
+            if(!name.value.trim())throw Error("Укажите название значения справочника.");
+            await api("/field-options/"+option.id,{method:"PATCH",
+                body:{name:name.value.trim(),active:active.checked}});
+            await refresh(catSelected(),field.id);
+            notify("Значение справочника обновлено.");
+        }));
+        row.append(name,label,save);
+        return row;
+    }
+    function catSelected() {return selectedId;}
+    function fieldEditor(field) {
+        const holder=el("details","category-field-item");
+        holder.dataset.fieldId=field.id;
+        const headline=el("summary","category-field-summary");
+        const name=el("strong","",field.name);
+        const type=el("span","category-field-type",names[field.field_type]||field.field_type);
+        const state=el("span","category-field-state",
+            field.used_ever?"Используется":"Можно настроить");
+        headline.append(name,type,state);
+        holder.append(headline);
+        const body=el("div","category-field-body");
+        const form=adminForm(async()=>{
+            const title=fieldName.value.trim();
+            if(!title)throw Error("Укажите название поля.");
+            await api("/category-fields/"+field.id,{method:"PATCH",body:{
+                name:title,field_type:fieldType.value,
+                selection_mode:fieldType.value==="choice"?selection.value:null}});
+            await refresh(selectedId,field.id);
+            notify("Настройки поля сохранены.");
+        });
+        form.form.classList.add("category-compact-form");
+        form.save.textContent="Сохранить настройки";
+        const fieldName=adminInput(field.name);
+        fieldName.required=true;
+        fieldName.maxLength=150;
+        const fieldType=adminSelect(kinds,field.field_type);
+        const selection=adminSelect([["Одно значение","single"],["Несколько значений","multiple"]],
+            field.selection_mode||"single");
+        fieldType.disabled=!!field.used_ever;
+        selection.disabled=!!field.used_ever || field.field_type!=="choice";
+        fieldType.onchange=()=>{
+            selection.disabled=!!field.used_ever || fieldType.value!=="choice";
+        };
+        const editorGrid=el("div","category-field-grid");
+        editorGrid.append(adminField("Название поля *",fieldName),
+            adminField("Тип данных",fieldType),adminField("Выбор значений",selection));
+        form.form.prepend(editorGrid);
+        if(field.used_ever){
+            form.form.insertBefore(el("p","admin-inline-hint",
+                "Это поле уже применялось в статьях. Его тип и режим выбора закреплены для сохранения истории; название можно изменить."),
+                form.footer);
+        } else {
+            form.form.insertBefore(el("p","admin-inline-hint",
+                "Пока поле не использовано, тип и режим выбора можно менять."),
+                form.footer);
+        }
+        body.append(form.form);
+        if(field.field_type==="choice"){
+            const optSection=el("section","category-options-section");
+            const title=el("div","category-options-heading");
+            title.append(el("h4","","Значения справочника"),
+                el("span","category-field-type",(field.options||[]).length+" вариантов"));
+            optSection.append(title);
+            const options=el("div","category-options-list");
+            if(!(field.options||[]).length){
+                options.append(el("p","category-list-empty",
+                    "Вариантов ещё нет. Добавьте первое значение."));
+            }
+            (field.options||[]).forEach(option=>options.append(optionEditor(option,field)));
+            optSection.append(options);
+            const addOption=adminForm(async()=>{
+                const label=optionName.value.trim();
+                if(!label)throw Error("Введите значение.");
+                await api("/category-fields/"+field.id+"/options",{method:"POST",
+                    body:{name:label}});
+                await refresh(selectedId,field.id);
+                notify("Вариант добавлен.");
+            });
+            addOption.form.classList.add("category-option-form");
+            addOption.save.textContent="Добавить вариант";
+            const optionName=adminInput("","Новое значение");
+            optionName.required=true;
+            optionName.maxLength=200;
+            optionName.setAttribute("aria-label","Новое значение справочника");
+            addOption.form.prepend(optionName);
+            optSection.append(addOption.form);
+            body.append(optSection);
+        }
+        holder.append(body);
+        return holder;
+    }
+    function drawDetail(expandedField) {
+        detail.replaceChildren();
+        const cat=categories.find(item=>item.id===selectedId);
+        if(!cat){
+            const empty=el("div","category-detail-empty");
+            empty.append(el("div","category-detail-symbol","§"),
+                el("h3","","Выберите категорию"),
+                el("p","","Найдите категорию в списке слева или создайте новую, чтобы настроить её поля."));
+            detail.append(empty);
+            return;
+        }
+        const header=el("div","category-detail-heading");
+        const text=el("div");
+        text.append(el("span","admin-eyebrow",cat.code_id?"КАТЕГОРИЯ КОДЕКСА":"ГЛОБАЛЬНАЯ КАТЕГОРИЯ"),
+            el("h3","",cat.name),
+            el("p","muted",(cat.fields||[]).length+" полей · Все поля необязательные"));
+        const nameToggle=adminButton("Переименовать",()=>{
+            rename.open=!rename.open;
+            if(rename.open)categoryName.focus();
+        });
+        header.append(text,nameToggle);
+        detail.append(header);
+
+        const rename=el("details","category-rename");
+        const renameSummary=el("summary","","Изменить название категории");
+        rename.append(renameSummary);
+        const renameForm=adminForm(async()=>{
+            const newName=categoryName.value.trim();
+            if(!newName)throw Error("Укажите название категории.");
+            await api("/categories/"+cat.id,{method:"PATCH",body:{name:newName}});
+            await refresh(cat.id);
+            notify("Категория переименована.");
+        });
+        renameForm.save.textContent="Сохранить название";
+        const categoryName=adminInput(cat.name);
+        categoryName.required=true;
+        categoryName.maxLength=150;
+        renameForm.form.prepend(adminField("Новое название категории",categoryName));
+        rename.append(renameForm.form);
+        detail.append(rename);
+
+        const headerFields=el("div","category-fields-heading");
+        headerFields.append(el("h4","","Поля категории"),
+            el("span","category-field-count",(cat.fields||[]).length+" полей"));
+        detail.append(headerFields);
+        const fields=el("div","category-fields-list");
+        if(!(cat.fields||[]).length){
+            fields.append(el("div","category-empty-fields",
+                "В категории пока нет пользовательских полей. Добавьте поле, если нужно хранить дополнительные сведения."));
+        }
+        (cat.fields||[]).forEach(field=>{
+            const row=fieldEditor(field);
+            if(expandedField===field.id)row.open=true;
+            fields.append(row);
+        });
+        detail.append(fields);
+
+        const make=el("details","category-add-field");
+        const summary=el("summary","category-add-field-trigger","＋ Добавить поле");
+        make.append(summary);
+        const form=adminForm(async()=>{
+            const name=fname.value.trim();
+            if(!name)throw Error("Укажите название нового поля.");
+            const result=await api("/categories/"+cat.id+"/fields",{method:"POST",
+                body:{name,field_type:kind.value,
+                      selection_mode:kind.value==="choice"?selectMode.value:null}});
+            await refresh(cat.id,result.id);
+            notify("Поле добавлено.");
+        });
+        form.save.textContent="Создать поле";
+        const fname=adminInput("","Например: Основание применения");
+        fname.required=true;
+        fname.maxLength=150;
+        const kind=adminSelect(kinds,"string");
+        const selectMode=adminSelect([
+            ["Одно значение","single"],["Несколько значений","multiple"]],"single");
+        selectMode.disabled=true;
+        kind.onchange=()=>{selectMode.disabled=kind.value!=="choice";};
+        const fieldGrid=el("div","category-field-grid");
+        fieldGrid.append(adminField("Название поля *",fname),
+            adminField("Тип данных",kind),adminField("Режим выбора",selectMode));
+        form.form.prepend(fieldGrid,
+            adminInfo("Поля необязательны. Вы можете вернуться к их настройке позже."));
+        make.append(form.form);
+        detail.append(make);
+    }
+    async function refresh(preferId,expandedField) {
+        const route="/categories"+(scope.value?"?code_id="+encodeURIComponent(scope.value):"");
+        categories=await api(route);
+        if(preferId!==undefined)selectedId=preferId;
+        if(!categories.some(cat=>cat.id===selectedId))selectedId=categories[0]?.id||null;
+        drawList();
+        drawDetail(expandedField);
+    }
+    search.oninput=drawList;
+    scope.onchange=()=>{
+        selectedId=null;
+        creator.hidden=true;
+        addCategory.setAttribute("aria-expanded","false");
+        adminSafe(async()=>await refresh());
+    };
+    await refresh();
 }
+
 async function adminArticleFinder(label,initial) {
     const wrap=el("div","admin-finder");
     const query=adminInput(initial||"","Номер, название или текст статьи");
