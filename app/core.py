@@ -409,6 +409,20 @@ def init_database():
             except Exception:
                 c.rollback()
                 raise
+        if not c.execute("SELECT 1 FROM schema_migrations WHERE version=3").fetchone():
+            c.execute("BEGIN IMMEDIATE")
+            try:
+                migration = (base / "003_library_acts.sql").read_text(encoding="utf-8")
+                for part in migration.split(";"):
+                    statement = "\n".join(line for line in part.splitlines()
+                                           if not line.lstrip().startswith("--")).strip()
+                    if statement:
+                        c.execute(statement)
+                c.execute("INSERT INTO schema_migrations(version) VALUES(3)")
+                c.commit()
+            except Exception:
+                c.rollback()
+                raise
         c.commit()
     finally:
         c.close()
