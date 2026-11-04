@@ -111,13 +111,18 @@ window.addEventListener("scroll", () => {
     scrollSavePending = true;
     requestAnimationFrame(() => { scrollSavePending = false; storePosition(); });
 }, {passive:true});
+function closeNavigation() {
+    layout.classList.remove("menu-open");
+    document.getElementById("menuToggle").setAttribute("aria-expanded", "false");
+}
 function go(path, push) {
+    const resolved = new URL(path, location.origin);
     if (push !== false) {
         storePosition();
-        history.pushState({scrollY:0}, "", path);
+        history.pushState({scrollY:0}, "", resolved.pathname + resolved.search);
     }
-    layout.classList.remove("menu-open");
-    renderRoute(path, {restore:push === false}).catch(err => showError(err));
+    closeNavigation();
+    renderRoute(resolved.pathname, {restore:push === false}).catch(err => showError(err));
 }
 document.addEventListener("click", event => {
     const link = event.target.closest("a[data-link]");
@@ -129,7 +134,27 @@ window.addEventListener("popstate", event => {
     renderRoute(location.pathname, {restore:true, scrollY:event.state && event.state.scrollY})
         .catch(err => showError(err));
 });
-document.getElementById("menuToggle").addEventListener("click", () => layout.classList.toggle("menu-open"));
+document.getElementById("menuToggle").addEventListener("click", () => {
+    layout.classList.toggle("menu-open");
+    document.getElementById("menuToggle").setAttribute("aria-expanded",
+        String(layout.classList.contains("menu-open")));
+});
+document.getElementById("navBackdrop").addEventListener("click", closeNavigation);
+document.addEventListener("keydown", event => {
+    if (event.key === "Escape" && layout.classList.contains("menu-open")) {
+        closeNavigation();
+        document.getElementById("menuToggle").focus();
+        return;
+    }
+    const focused = document.activeElement;
+    const writing = focused && (["INPUT","TEXTAREA","SELECT"].includes(focused.tagName) ||
+        focused.isContentEditable);
+    if (!writing && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        if (location.pathname === "/search") document.getElementById("searchQuery")?.focus();
+        else go("/search");
+    }
+});
 roleSelect.addEventListener("change", () => {
     if (editorState) { notify("Завершите редактирование перед сменой роли."); roleSelect.value = role; return; }
     sessionStorage.setItem("sas-demo-role", roleSelect.value);
@@ -172,15 +197,20 @@ function navItem(label, path, symbol) {
 function refreshGlobalNav() {
     nav.replaceChildren();
     nav.append(
-        navItem("Главная", "/", "⌂"),
+        navItem("Обзор", "/", "⌂"),
+        navItem("Каталог законов", "/laws", "§"),
         navItem("Поиск законодательства", "/search", "⌕"),
-        navItem("Судебные прецеденты", "/precedents", "§")
+        navItem("Судебные прецеденты", "/precedents", "◈")
     );
     if (isLawyer()) nav.append(navItem("Моё избранное", "/favorites", "☆"));
     if (hasRole("library_editor") || isAdmin()) nav.append(navItem("Редакционная проверка", "/reviews", "✓"));
     const div = el("div", "sidebar-separator");
     nav.append(div);
     allPortals.filter(p => p.id !== "library").forEach(p => nav.append(navItem(p.name, "/portals/" + p.id, "⌑")));
+    document.querySelectorAll(".header-nav a[data-link]").forEach(link => {
+        if (link.getAttribute("href") === location.pathname) link.setAttribute("aria-current", "page");
+        else link.removeAttribute("aria-current");
+    });
 }
 async function loadContext() {
     currentUser = await api("/me");
@@ -1151,42 +1181,58 @@ async function publicationComposer(portalId) {
     }catch(e){notify(e.message);}
 }
 async function renderRoute(path, options) {
-    const serial=++lastNavSerial;
+    const serial = ++lastNavSerial;
+    const pathname = new URL(path, location.origin).pathname;
     clearReading();
     main.replaceChildren();
     codeNav.replaceChildren();
+    refreshGlobalNav();
     if (!currentUser) {
         if (!role) {
-            pageHeading("Требуется вход", "Законодательная библиотека",
-                "Для чтения правовых текстов выберите тестовую роль в верхней панели.");
+            if (pathname === "/" || pathname === "/laws") {
+                await home(true);
+            } else {
+                pageHeading("Доступ к правовым ресурсам", "Требуется вход",
+                    "Для поиска и просмотра правовых текстов выберите тестовую роль в верхней панели.");
+                const button = el("button", "button primary", "Выбрать роль");
+                button.onclick = () => roleSelect.focus();
+                main.append(button);
+            }
             return;
         }
         await loadContext();
     }
-    if(serial!==lastNavSerial)return;
+    if (serial !== lastNavSerial) return;
     refreshGlobalNav();
-    const parts=path.split("/").filter(Boolean);
-    if(!parts.length)await home();
-    else if(parts[0]==="jurisdictions"&&parts[1])await jurisdiction(parts[1]);
-    else if(parts[0]==="codes"&&parts[1])
-        await openSection(parts[1],parts[2]==="nodes"?parts[3]:null,null,options,serial);
-    else if(parts[0]==="articles"&&parts[1]){
-        const article=await api("/articles/"+parts[1]);
-        await openSection(article.code_id,article.parent_id,article.id,options,serial);
+    const parts = pathname.split("/").filter(Boolean);
+    if (!parts.length) await home();
+    else if (parts[0] === "laws") {
+        const jurisdiction = new URLSearchParams(location.search).get("jurisdiction") || "all";
+        await lawCatalog(jurisdiction);
     }
-    else if(parts[0]==="search")await searchPage();
-    else if(parts[0]==="favorites")await favoritesPage();
-    else if(parts[0]==="notifications")await notificationsPage();
-    else if(parts[0]==="precedents")await precedentPage();
-    else if(parts[0]==="portals"&&parts[1])await portalPage(parts[1]);
-    else if(parts[0]==="publications"&&parts[1])await publicationPage(parts[1]);
-    else if(parts[0]==="bills"&&parts[1])await billPage(parts[1]);
-    else if(parts[0]==="bills")await billListPage();
-    else if(parts[0]==="reviews")await reviewsPage();
-    else if(parts[0]==="revisions"&&parts[1])await revisionsPage(parts[1]);
+    else if (parts[0] === "jurisdictions" && parts[1]) await jurisdiction(parts[1]);
+    else if (parts[0] === "codes" && parts[1]) {
+        await openSection(parts[1], parts[2] === "nodes" ? parts[3] : null, null, options, serial);
+    }
+    else if (parts[0] === "articles" && parts[1]) {
+        const article = await api("/articles/" + parts[1]);
+        await openSection(article.code_id, article.parent_id, article.id, options, serial);
+    }
+    else if (parts[0] === "search") await searchPage();
+    else if (parts[0] === "favorites") await favoritesPage();
+    else if (parts[0] === "notifications") await notificationsPage();
+    else if (parts[0] === "precedents") await precedentPage();
+    else if (parts[0] === "portals" && parts[1]) await portalPage(parts[1]);
+    else if (parts[0] === "publications" && parts[1]) await publicationPage(parts[1]);
+    else if (parts[0] === "bills" && parts[1]) await billPage(parts[1]);
+    else if (parts[0] === "bills") await billListPage();
+    else if (parts[0] === "reviews") await reviewsPage();
+    else if (parts[0] === "revisions" && parts[1]) await revisionsPage(parts[1]);
     else throw Error("Страница не найдена.");
-    if(options.restore && !reading) window.scrollTo(0,options.scrollY ?? Number(sessionStorage.getItem("sas-scroll:"+path)||0));
-    else if(!reading)window.scrollTo(0,0);
+    if (options.restore && !reading) {
+        window.scrollTo(0, options.scrollY ??
+            Number(sessionStorage.getItem("sas-scroll:" + pathname) || 0));
+    } else if (!reading) window.scrollTo(0, 0);
 }
 function collectEditorBody() {
     const values=Object.fromEntries(new FormData(editorForm));
