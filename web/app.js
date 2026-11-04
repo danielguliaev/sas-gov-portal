@@ -939,11 +939,8 @@ async function openSection(codeId, nodeId, targetId, options, serial) {
     const findInCode = el("a", "button ghost", "Поиск по кодексу");
     findInCode.href = isLawyer() ? "/search?code_id=" + encodeURIComponent(code.id) : "/search";
     findInCode.dataset.link = "";
-    const print = el("button", "button ghost action-print", "Распечатать");
-    print.type = "button";
-    print.onclick = () => window.print();
     const count = el("span", "reader-count", "Загружено статей: 0");
-    toolbar.append(catalogLink, findInCode, print);
+    toolbar.append(catalogLink, findInCode);
     if (isAdmin()) {
         const addNode = el("button", "button primary", "Добавить часть / раздел");
         addNode.type = "button";
