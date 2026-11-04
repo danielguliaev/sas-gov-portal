@@ -233,7 +233,9 @@ async function adminCategories(area) {
     let selectedId=new URLSearchParams(location.search).get("category")||null;
 
     const toolbar=el("div","category-toolbar");
-    const scope=adminSelect(allCodes.map(c=>[c.name,c.id]),"","Только глобальные категории");
+    const scope=adminSelect(allCodes.map(c=>[c.name,c.id]),
+        new URLSearchParams(location.search).get("code")||"",
+        "Только глобальные категории");
     scope.id="categoryCodeScope";
     scope.setAttribute("aria-label","Контекст кодекса");
     const scopeLabel=adminField("Контекст кодекса",scope);
@@ -268,9 +270,14 @@ async function adminCategories(area) {
     newCategory.id="newCategoryName";
     newCategory.required=true;
     newCategory.maxLength=150;
+    const destinationHint=adminInfo("");
+    function updateDestinationHint(){
+        destinationHint.textContent="Категория будет добавлена "+
+            (scope.value?"в выбранный кодекс.":"во все кодексы как глобальная.");
+    }
+    updateDestinationHint();
     create.form.prepend(el("h3","","Создание категории"),
-        adminField("Название новой категории *",newCategory),
-        adminInfo("Категория будет добавлена "+(scope.value?"в выбранный кодекс.":"во все кодексы как глобальная.")));
+        adminField("Название новой категории *",newCategory),destinationHint);
     create.footer.prepend(adminButton("Отмена",()=>{
         creator.hidden=true;
         addCategory.setAttribute("aria-expanded","false");
@@ -327,6 +334,7 @@ async function adminCategories(area) {
             button.append(label,meta);
             button.onclick=()=>{
                 selectedId=cat.id;
+                syncUrl();
                 drawList();
                 drawDetail();
             };
@@ -523,11 +531,19 @@ async function adminCategories(area) {
         make.append(form.form);
         detail.append(make);
     }
+    function syncUrl() {
+        const params=new URLSearchParams();
+        if(scope.value)params.set("code",scope.value);
+        if(selectedId)params.set("category",selectedId);
+        history.replaceState(history.state,"","/admin/categories"+
+            (params.toString()?"?"+params:""));
+    }
     async function refresh(preferId,expandedField) {
         const route="/categories"+(scope.value?"?code_id="+encodeURIComponent(scope.value):"");
         categories=await api(route);
         if(preferId!==undefined)selectedId=preferId;
         if(!categories.some(cat=>cat.id===selectedId))selectedId=categories[0]?.id||null;
+        syncUrl();
         drawList();
         drawDetail(expandedField);
     }
@@ -536,6 +552,7 @@ async function adminCategories(area) {
         selectedId=null;
         creator.hidden=true;
         addCategory.setAttribute("aria-expanded","false");
+        updateDestinationHint();
         adminSafe(async()=>await refresh());
     };
     await refresh();
