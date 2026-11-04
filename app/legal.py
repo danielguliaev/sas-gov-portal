@@ -283,6 +283,28 @@ def relation_types(current=Depends(actor)):
         return allrows(c, "SELECT * FROM relation_types WHERE active=1 ORDER BY name")
 
 
+@router.get("/search/revisions")
+def search_historical_revisions(query: str = "", code_id: str | None = None,
+                                limit: int = Query(50,ge=1,le=100), current=Depends(actor)):
+    require(current, "lawyer", "superadmin")
+    if len(query) > 200 or not query.strip():
+        fail(422, "INVALID_QUERY", "Укажите поисковый запрос до 200 символов.")
+    with read_db() as c:
+        escaped = query.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        sql = """SELECT r.id,r.article_id,r.sequence,r.title,r.number,r.published_at,
+                        r.change_reason,a.code_id,a.status AS article_status,c.name AS code_name
+                 FROM article_revisions r JOIN articles a ON a.id=r.article_id
+                 JOIN codes c ON c.id=a.code_id
+                 WHERE (r.title LIKE ? ESCAPE '\\' OR r.text_rich LIKE ? ESCAPE '\\'
+                        OR r.number LIKE ? ESCAPE '\\')"""
+        params = ["%"+escaped+"%"] * 3
+        if code_id:
+            sql += " AND a.code_id=?"
+            params.append(code_id)
+        return {"items": allrows(c,sql+" ORDER BY r.published_at DESC,r.id DESC LIMIT ?",
+                                params+[limit]),"limit":limit}
+
+
 @router.get("/search")
 def search(query: str = "", jurisdiction: str | None = None, code_id: str | None = None,
            number: str | None = None, category: str | None = None, criminal_class: str | None = None,
@@ -333,9 +355,31 @@ def search(query: str = "", jurisdiction: str | None = None, code_id: str | None
                     fail(422, "INVALID_RANGE", "Отрицательный диапазон недопустим.")
                 conditions.append("a." + column + sign + "?"); params.append(param)
         if field_id:
-            one(c, "SELECT id FROM category_fields WHERE id=? AND active=1", (field_id,))
-            conditions.append("json_extract(a.custom_values, ?) = ?")
-            params.extend(["$." + field_id, field_value])
+            field = one(c, """SELECT f.id,f.field_type,f.selection_mode FROM category_fields f
+                             JOIN categories k ON k.id=f.category_id
+                             WHERE f.id=? AND f.active=1 AND k.active=1""", (field_id,))
+            if field_value is None or len(field_value) > 500:
+                fail(422, "INVALID_FIELD_FILTER", "Укажите значение пользовательского поля.")
+            path = "$." + field_id
+            if field["field_type"] == "number":
+                try:
+                    val = float(field_value)
+                except ValueError:
+                    fail(422, "INVALID_FIELD_FILTER", "Ожидалось число.")
+                conditions.append("json_extract(a.custom_values, ?) = ?")
+                params.extend([path, val])
+            elif field["field_type"] == "boolean":
+                if field_value not in ("true", "false"):
+                    fail(422, "INVALID_FIELD_FILTER", "Ожидается true или false.")
+                conditions.append("json_extract(a.custom_values, ?) = ?")
+                params.extend([path, 1 if field_value == "true" else 0])
+            elif field["field_type"] == "choice" and field["selection_mode"] == "multiple":
+                conditions.append("""EXISTS (SELECT 1 FROM json_each(
+                    a.custom_values, ?) AS options WHERE options.value=?)""")
+                params.extend([path, field_value])
+            else:
+                conditions.append("json_extract(a.custom_values, ?) = ?")
+                params.extend([path, field_value])
         if not query.strip() and not advanced:
             fail(422, "EMPTY_QUERY", "Введите поисковый запрос.")
         rows = allrows(c, sql + " AND ".join(conditions) + " ORDER BY a.code_id,a.sort_key,a.id LIMIT 100", params)
