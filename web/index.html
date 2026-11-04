@@ -56,6 +56,49 @@
     <div>Copyright © 2026 State of San Andreas</div>
     <div class="footer-links"><a href="/laws" data-link>Реестр законов</a><a href="/search" data-link>Поиск статей</a></div>
   </footer>
+  <dialog id="structureDialog" aria-labelledby="structureTitle">
+    <div class="dialog-header">
+      <h2 id="structureTitle">Структура кодекса</h2>
+      <button id="closeStructure" class="icon-button" type="button" aria-label="Закрыть редактор структуры">×</button>
+    </div>
+    <form id="structureForm" novalidate>
+      <div id="structureNodeFields" class="structure-field-group">
+        <label>Тип элемента
+          <select name="type_id" id="structureTypeSelect" required></select>
+        </label>
+        <label>Родительский элемент
+          <select name="parent_id" id="structureParentSelect"></select>
+        </label>
+        <div class="form-grid">
+          <label>Юридический номер<input name="number" maxlength="100" required placeholder="I, 1, A…"></label>
+          <label>Название<input name="title" maxlength="250" required placeholder="Название части или раздела"></label>
+        </div>
+      </div>
+      <div id="structureTypeFields" class="structure-field-group" hidden>
+        <label>Название типа<input name="type_name" maxlength="100" placeholder="Часть, раздел, глава…"></label>
+        <div class="form-grid">
+          <label>Порядок уровня<input name="level_order" type="number" step="1" value="1"></label>
+          <label>Формат номера
+            <select name="number_format">
+              <option value="mixed">Смешанный</option>
+              <option value="numeric">Цифровой</option>
+              <option value="roman">Римский</option>
+              <option value="alpha">Буквенный</option>
+            </select>
+          </label>
+        </div>
+        <fieldset>
+          <legend>Допустимые родительские типы</legend>
+          <div id="structureAllowedParents" class="checks"></div>
+        </fieldset>
+      </div>
+      <p id="structureStatus" class="form-status" role="status"></p>
+      <div class="dialog-footer">
+        <button type="button" class="button ghost" id="cancelStructure">Отмена</button>
+        <button type="submit" class="button primary" id="saveStructure">Сохранить</button>
+      </div>
+    </form>
+  </dialog>
   <dialog id="editorDialog" aria-labelledby="editorTitle">
     <div class="dialog-header"><h2 id="editorTitle">Редактор статьи</h2><button id="closeEditor" class="icon-button" type="button" aria-label="Закрыть редактор">×</button></div>
     <form id="articleForm" novalidate>
