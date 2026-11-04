@@ -74,16 +74,48 @@ def _add_article(c, code_id, body, current):
 
 @router.post("/codes")
 def create_code(body: dict, current=Depends(actor)):
+    """Atomically create a code and, optionally, its editable hierarchy template."""
     _admin(current)
+    name = plain(body.get("name"), 200).strip()
+    abbreviation = plain(body.get("abbreviation", ""), 40).strip()
+    jurisdiction_id = body.get("jurisdiction_id")
+    template = body.get("hierarchy_template", "empty")
+    if not name:
+        fail(422, "INVALID_CODE_NAME", "Введите название кодекса.")
+    if template not in ("empty", "standard"):
+        fail(422, "INVALID_HIERARCHY_TEMPLATE", "Неизвестный шаблон структуры кодекса.")
     with transaction() as c:
-        jurisdiction_id = body.get("jurisdiction_id")
         one(c, "SELECT id FROM jurisdictions WHERE id=?", (jurisdiction_id,))
+        names = allrows(c, "SELECT name FROM codes WHERE jurisdiction_id=?", (jurisdiction_id,))
+        if any(row["name"].casefold() == name.casefold() for row in names):
+            fail(409, "DUPLICATE_CODE", "В этой юрисдикции кодекс с таким названием уже существует.")
         code_id = uid()
-        c.execute("INSERT INTO codes(id,jurisdiction_id,name,abbreviation,is_demo) VALUES(?,?,?,?,?)",
-                  (code_id, jurisdiction_id, plain(body.get("name"), 200),
-                   plain(body.get("abbreviation", ""), 40), 1 if body.get("is_demo", True) else 0))
-        audit(c, current, "code.create", "code", code_id, {}, body)
-    return {"id": code_id}
+        c.execute("""INSERT INTO codes(id,jurisdiction_id,name,abbreviation,is_demo)
+                     VALUES(?,?,?,?,0)""",
+                  (code_id, jurisdiction_id, name, abbreviation))
+        initial_types = []
+        if template == "standard":
+            # Hierarchy types are editable per code; a code can also begin empty.
+            for order, (level_name, parent_names, number_format) in enumerate((
+                ("Часть", ["ROOT"], "roman"),
+                ("Раздел", ["ROOT", "Часть"], "mixed"),
+                ("Глава", ["ROOT", "Часть", "Раздел"], "mixed"),
+                ("Подраздел", ["ROOT", "Часть", "Раздел", "Глава"], "mixed"),
+            ), start=1):
+                type_id = uid()
+                parent_ids = [p if p == "ROOT" else next(
+                    item["id"] for item in initial_types if item["name"] == p)
+                    for p in parent_names]
+                c.execute("""INSERT INTO hierarchy_types
+                          (id,code_id,name,level_order,allowed_parents,number_format)
+                          VALUES(?,?,?,?,?,?)""",
+                          (type_id, code_id, level_name, order, dumps(parent_ids), number_format))
+                initial_types.append({"id": type_id, "name": level_name})
+        audit(c, current, "code.create", "code", code_id, {},
+              {"jurisdiction_id": jurisdiction_id, "name": name, "abbreviation": abbreviation,
+               "hierarchy_template": template, "created_type_ids": [t["id"] for t in initial_types]})
+    return {"id": code_id, "name": name, "hierarchy_template": template,
+            "type_count": len(initial_types)}
 
 
 @router.post("/codes/{code_id}/hierarchy-types")
