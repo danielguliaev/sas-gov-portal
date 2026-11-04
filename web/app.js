@@ -118,10 +118,14 @@ function clearReading() {
     if (activeObserver) { activeObserver.disconnect(); activeObserver = null; }
     reading = null;
 }
+history.scrollRestoration = "manual";
 function storePosition() {
-    if (!reading) return;
-    sessionStorage.setItem("sas-scroll:" + location.pathname, String(window.scrollY));
-    if (history.state) history.replaceState(Object.assign({}, history.state, {scrollY:window.scrollY}), "", location.href);
+    // Never overwrite the current history entry with the previous route's scroll.
+    if (!reading || reading.path !== location.pathname || reading.restoring) return;
+    const position=window.scrollY;
+    sessionStorage.setItem("sas-scroll:" + location.pathname, String(position));
+    history.replaceState(Object.assign({}, history.state || {},
+        {scrollY:position,hasReadingPosition:true}), "", location.href);
 }
 let scrollSavePending = false;
 window.addEventListener("scroll", () => {
@@ -774,21 +778,36 @@ async function loadNext() {
         if (state.targetId) {
             const target = document.getElementById("card-" + state.targetId);
             if (target) {
-                target.classList.add("target");
-                target.scrollIntoView({block:"start"});
-                setTimeout(() => target.classList.remove("target"), 2800);
+                // Browser history restores its own precise position; a newly opened
+                // permalink instead highlights and scrolls to the selected article.
+                if (state.restoreScroll === null) {
+                    target.classList.add("target");
+                    target.scrollIntoView({block:"start"});
+                    setTimeout(() => target.classList.remove("target"), 2800);
+                }
                 state.targetId = null;
             } else if (state.hasMore) {
                 await loadNext();
-            } else notify("Целевая статья отсутствует в текущем разделе.");
-        } else if (state.restoreScroll !== null) {
+                return;
+            } else {
+                notify("Целевая статья отсутствует в текущем разделе.");
+                state.targetId = null;
+            }
+        }
+        if (state.restoreScroll !== null) {
             if (document.body.scrollHeight >= state.restoreScroll + window.innerHeight ||
                 !state.hasMore) {
                 window.scrollTo(0, state.restoreScroll);
                 state.restoreScroll = null;
+                state.restoring = false;
+                storePosition();
             } else {
                 await loadNext();
+                return;
             }
+        } else {
+            state.restoring = false;
+            storePosition();
         }
     } catch(error) {
         if (reading !== state) return;
@@ -1059,14 +1078,22 @@ async function openSection(codeId, nodeId, targetId, options, serial) {
     const loadStatus = el("div", "load-status");
     loadStatus.setAttribute("role", "status");
     main.append(cards, loadStatus);
+    // Explicit article permalinks take precedence over an unrelated saved scroll.
+    // Back/Forward entries which were actually read carry their own scroll position.
+    const hasHistoryPosition = Boolean(options.restore &&
+        history.state && history.state.hasReadingPosition &&
+        Number.isFinite(Number(options.scrollY)));
+    const rememberedPosition = options.restore ?
+        (hasHistoryPosition ? Number(options.scrollY) :
+         (!targetId ? Number(sessionStorage.getItem("sas-scroll:" + location.pathname) || 0) : null)) : null;
     reading = {
+        path:location.pathname, restoring:rememberedPosition!==null || Boolean(targetId),
         codeId, nodeId, cards, status:loadStatus, cursor:null, hasMore:true, loading:false,
         loaded:0, count, emptyMessage: subnodes.length ?
             "В этом разделе пока нет отдельных статей. Выберите подраздел выше или в боковом содержании." :
             "В данном разделе ещё нет опубликованных статей.",
         targetId: targetId || null,
-        restoreScroll: targetId ? null : (options.restore ?
-             (options.scrollY ?? Number(sessionStorage.getItem("sas-scroll:" + location.pathname) || 0)) : null)
+        restoreScroll: rememberedPosition
     };
     activeObserver = new IntersectionObserver(entries => {
         const visible = entries.filter(e => e.isIntersecting)
