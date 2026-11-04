@@ -106,7 +106,10 @@ def test_reader_retry_and_deep_article_link(tmp_path):
             page.evaluate("window.scrollTo(0, 1800)")
             page.wait_for_function("window.scrollY >= 1300")
             saved=page.evaluate("window.scrollY")
-            page.locator(".article-card").nth(4).locator("a[href^='/articles/']").first.click()
+            # Avoid Playwright's implicit scroll-to-element: a real click on a
+            # visible card must preserve the reader's last viewport position.
+            page.locator(".article-card").nth(4).locator("a[href^='/articles/']").first.evaluate(
+                "(link) => link.click()")
             expect(page).to_have_url(base+"/articles/"+created[3])
             expect(page.locator("#card-"+created[3])).to_be_visible()
             page.go_back(wait_until="domcontentloaded")
