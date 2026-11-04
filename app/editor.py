@@ -490,6 +490,80 @@ def deactivate_relation(relation_id: str, body: dict, current=Depends(actor)):
     return {"active": False}
 
 
+def _relation_restore_plan(c, relation_id):
+    relation = one(c, "SELECT * FROM article_relations WHERE id=? AND active=0", (relation_id,))
+    kind = one(c, "SELECT * FROM relation_types WHERE id=? AND active=1", (relation["type_id"],))
+    source = one(c, "SELECT id,status,categories_json,revision_id,number,title FROM articles WHERE id=?",
+                 (relation["source_id"],))
+    target = one(c, "SELECT id,status,categories_json,revision_id,number,title FROM articles WHERE id=?",
+                 (relation["target_id"],))
+    causes = []
+    if source["status"] != "active" or target["status"] != "active":
+        causes.append("Одна из статей находится в архиве.")
+    if kind["source_category"] and kind["source_category"] not in loads(source["categories_json"], []):
+        causes.append("Исходная статья больше не имеет требуемой категории.")
+    if kind["target_category"] and kind["target_category"] not in loads(target["categories_json"], []):
+        causes.append("Целевая статья больше не имеет требуемой категории.")
+    existing = maybe(c, """SELECT id FROM article_relations WHERE active=1
+                        AND type_id=? AND source_id=? AND target_id=?""",
+                     (relation["type_id"],relation["source_id"],relation["target_id"]))
+    if existing:
+        causes.append("Эквивалентная действующая связь уже существует.")
+    if kind["exclusive_target"]:
+        assigned = maybe(c, """SELECT id FROM article_relations WHERE active=1 AND exclusive_target=1
+                               AND target_id=?""", (relation["target_id"],))
+        if assigned:
+            causes.append("Мера наказания уже назначена другому обвинению.")
+    snapshot = {"relation":relation,"type":kind,
+                "source":source,"target":target,"active_equivalent":existing,
+                "allowed": not causes}
+    return {"relation_id":relation_id,"type_name":kind["name"],"source_id":source["id"],
+            "target_id":target["id"],"source_label":source["number"]+" · "+source["title"],
+            "target_label":target["number"]+" · "+target["title"],
+            "disabled_reason":relation["disabled_reason"],"conflicts":causes,
+            "restorable":not causes,"preview_hash":_fingerprint(snapshot)}
+
+
+@router.get("/articles/{article_id}/relations/restore-candidates")
+def relation_restore_candidates(article_id: str, current=Depends(actor)):
+    _admin(current)
+    with read_db() as c:
+        one(c, "SELECT id FROM articles WHERE id=?", (article_id,))
+        archived = allrows(c, """SELECT id FROM article_relations WHERE active=0
+                  AND (source_id=? OR target_id=?) ORDER BY disabled_at DESC,id DESC LIMIT 100""",
+                  (article_id,article_id))
+        return [_relation_restore_plan(c,row["id"]) for row in archived]
+
+
+@router.post("/relations/{relation_id}/restore")
+def restore_relation(relation_id: str, body: dict,
+                     idempotency_key: str | None = Header(None), current=Depends(actor)):
+    _admin(current)
+    if body.get("confirm") is not True:
+        fail(422, "CONFIRMATION_REQUIRED", "Подтвердите выборочное восстановление юридической связи.")
+    with transaction() as c:
+        def apply():
+            preview = _relation_restore_plan(c,relation_id)
+            if body.get("preview_hash") != preview["preview_hash"]:
+                fail(409,"PREVIEW_STALE","Связи или юридические категории изменились после проверки.")
+            if not preview["restorable"]:
+                fail(409,"RELATION_RESTORE_CONFLICT","Связь несовместима с действующим законодательством.",
+                     {"conflicts":preview["conflicts"]})
+            old = one(c,"SELECT * FROM article_relations WHERE id=?",(relation_id,))
+            kind = one(c,"SELECT exclusive_target FROM relation_types WHERE id=?",(old["type_id"],))
+            c.execute("""UPDATE article_relations SET active=1,exclusive_target=?,
+                         disabled_reason=NULL,disabled_at=NULL WHERE id=?""",
+                      (kind["exclusive_target"],relation_id))
+            for article in (old["source_id"],old["target_id"]):
+                new_rev = append_revision(c,article,current["id"],
+                                          "Выборочное восстановление юридической связи")
+                _notify_favorites(c,article,new_rev)
+            audit(c,current,"relation.restore","article_relation",relation_id,old,{
+                "active":True,"preview_hash":preview["preview_hash"]})
+            return {"id":relation_id,"active":True}
+        return idempotent(c,current,"relation.restore:"+relation_id,idempotency_key,body,apply)
+
+
 @router.post("/categories")
 def create_category(body: dict, current=Depends(actor)):
     _admin(current)
