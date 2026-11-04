@@ -12,7 +12,7 @@ from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
-from app.core import APP_ENV, error_handler, init_database, seed_demo, actor, require, read_db
+from app.core import APP_ENV, error_handler, init_database, seed_demo, actor, require, read_db, transaction, uid, dumps, ts
 from app import legal, editor, portals, hierarchy, integration, auth, acts
 
 
@@ -76,6 +76,31 @@ async def security_and_throttling(request: Request, call_next):
         raise
     finally:
         elapsed_ms = (perf_counter() - started) * 1000
+        # A rejected write is logged in a *separate* transaction because the
+        # original legal mutation has been rolled back. Only authenticated
+        # administrative actors are eligible; no request body or token is stored.
+        if (request.url.path.startswith("/api/v1/") and
+            request.method in ("POST","PUT","PATCH","DELETE") and status >= 400):
+            identity = getattr(request.state, "audit_identity", None)
+            if identity and identity["roles"].intersection(
+                    {"superadmin","library_editor","portal_publisher","legislator"}):
+                try:
+                    params = request.path_params
+                    object_id = next((str(params[k]) for k in
+                        ("article_id","code_id","node_id","relation_id",
+                         "category_id","field_id","option_id","publication_id","id")
+                        if k in params), "-")
+                    with transaction() as c:
+                        c.execute("""INSERT INTO audit_events
+                            (id,user_id,action,object_type,object_id,before_json,
+                             after_json,created_at,source,result,http_status)
+                            VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                            (uid(),identity["id"],"request.rejected","api_mutation",
+                             object_id,dumps({}),dumps({"http_status":status}),ts(),
+                             identity["audit_source"],
+                             "forbidden" if status == 403 else "failed",status))
+                except Exception:
+                    request_logger.exception("Could not persist rejected legal action audit")
         if request.url.path.startswith("/api/v1/"):
             route = request.scope.get("route")
             route_name = getattr(route, "path", "unmatched")
