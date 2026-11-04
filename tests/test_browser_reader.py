@@ -109,7 +109,8 @@ def test_reader_retry_and_deep_article_link(tmp_path):
             # REQ-075/076: a return to a large chapter must load enough cards
             # to restore its own history position without changing the URL.
             page.goto(base+"/codes/demo-penal/nodes/demo-intro")
-            expect(page.locator(".article-card")).to_have_count(12,timeout=15000)
+            # Session restoration may prefetch all 15 cards; both 12 and 15 are valid.
+            page.wait_for_function("document.querySelectorAll('.article-card').length >= 12")
             page.evaluate("window.scrollTo(0, 1800)")
             page.wait_for_function("window.scrollY >= 1300")
             saved=page.evaluate("window.scrollY")
