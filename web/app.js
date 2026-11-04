@@ -133,6 +133,18 @@ function closeNavigation() {
     layout.classList.remove("menu-open");
     document.getElementById("menuToggle").setAttribute("aria-expanded", "false");
 }
+const sidebarToggle=document.getElementById("sidebarToggle");
+function setSidebarCollapsed(collapsed) {
+    layout.classList.toggle("sidebar-collapsed",Boolean(collapsed));
+    sidebarToggle.setAttribute("aria-expanded",String(!collapsed));
+    sidebarToggle.setAttribute("aria-label",
+        collapsed ? "Развернуть боковую панель" : "Свернуть боковую панель");
+    sidebarToggle.title=collapsed ? "Развернуть боковую панель" : "Свернуть боковую панель";
+    sidebarToggle.textContent=collapsed ? "❯" : "❮";
+    sessionStorage.setItem("sas-sidebar-collapsed",collapsed ? "1" : "0");
+}
+setSidebarCollapsed(sessionStorage.getItem("sas-sidebar-collapsed")==="1");
+sidebarToggle.onclick=()=>setSidebarCollapsed(!layout.classList.contains("sidebar-collapsed"));
 function go(path, push) {
     const resolved = new URL(path, location.origin);
     if (push !== false) {
