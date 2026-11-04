@@ -190,10 +190,15 @@ def test_legislation_portal_desktop_and_mobile(tmp_path):
             page.locator("#newCodeForm input[name='abbreviation']").fill("CCB")
             page.locator("#newCodeForm select[name='jurisdiction_id']").select_option("state")
             page.locator("#newCodeForm select[name='hierarchy_template']").select_option("standard")
+            page.locator(".code-publication-fields > summary").click()
+            page.locator("#newCodeForm input[name='publication_issuer']").fill("Орган штата")
+            page.locator("#newCodeForm input[name='publication_reference']").fill("PC-2026-004")
+            page.locator("#newCodeForm input[name='published_at']").fill("2026-11-04")
             page.evaluate("window.scrollTo(0,0)")
             page.screenshot(path=str(captures / "law-library-create-code.png"), full_page=True)
             page.locator("#newCodeForm button[type='submit']").click()
             expect(page.locator(".tree-code-name")).to_contain_text("Civil Code Browser")
+            expect(page.locator(".code-provenance")).to_contain_text("PC-2026-004")
             assert page.locator(".law-hero").count() == 0
 
             # The redesigned categories page edits a single category, not every open form.
