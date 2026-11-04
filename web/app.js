@@ -656,29 +656,106 @@ async function openSection(codeId, nodeId, targetId, options, serial) {
     if (!code) throw Error("Кодекс не найден.");
     treeData = await api("/codes/" + codeId + "/tree");
     if (serial !== lastNavSerial) return;
+    const selected = nodeId ? treeData.nodes.find(n => n.id === nodeId) : null;
+    if (nodeId && !selected) throw Error("Раздел не найден или перемещён в архив.");
     renderCodeNav(code, nodeId, !!targetId);
-    main.append(breadcrumb([{label:"Главная",href:"/"},{label:code.name,href:"/codes/"+code.id},
-        {label:nodeId ? (treeData.nodes.find(n=>n.id===nodeId) || {}).title || "Раздел" : "Статьи кодекса"}]));
-    pageHeading("Законодательная библиотека", code.name,
-        nodeId ? (treeData.nodes.find(n=>n.id===nodeId) || {}).title : "Статьи в корне кодекса");
+    const trail = [{label:"Реестр законов",href:"/laws"},
+                   {label:code.name,href:"/codes/" + code.id}];
+    if (selected) {
+        const ancestors = [];
+        let cursor = selected;
+        while (cursor) {
+            ancestors.unshift(cursor);
+            cursor = cursor.parent_id && treeData.nodes.find(n => n.id === cursor.parent_id);
+        }
+        ancestors.forEach((n,index) => trail.push({
+            label: n.number + " · " + n.title,
+            href: index < ancestors.length - 1 ? "/codes/" + codeId + "/nodes/" + n.id : null
+        }));
+    } else {
+        trail[trail.length - 1].href = null;
+    }
+    main.append(breadcrumb(trail));
+    const title = selected ? selected.number + " · " + selected.title : code.name;
+    pageHeading(code.abbreviation ? "Кодекс " + code.abbreviation : "Законодательный кодекс",
+                title, selected ? "Структурный раздел кодекса «" + code.name + "»." :
+                "Содержание кодекса. Выберите раздел для изучения норм права.");
+    if (code.is_demo) {
+        const status = el("div", "notice",
+            "Этот кодекс обозначен как демонстрационный. Приведённые материалы не являются действующими правовыми нормами.");
+        main.append(status);
+    }
+    const toolbar = el("div", "reader-subnav");
+    const catalogLink = el("a", "button ghost", "← Все кодексы");
+    catalogLink.href = "/laws"; catalogLink.dataset.link = "";
+    const findInCode = el("a", "button ghost", "Поиск по кодексу");
+    findInCode.href = "/search?code_id=" + encodeURIComponent(code.id);
+    findInCode.dataset.link = "";
+    const print = el("button", "button ghost action-print", "Распечатать");
+    print.type = "button";
+    print.onclick = () => window.print();
+    const count = el("span", "reader-count", "Загружено статей: 0");
+    toolbar.append(catalogLink, findInCode, print, count);
+    main.append(toolbar);
+
+    const subnodes = directChildren(treeData.nodes, nodeId || null);
+    if (subnodes.length) {
+        const sections = el("section", "section-catalog");
+        sections.append(homeSectionHeading("Структура документа",
+            selected ? "Подразделы" : "Содержание кодекса"));
+        const sectionGrid = el("div", "section-grid");
+        const renderSubnode = node => {
+            const type = treeData.types.find(t => t.id === node.type_id);
+            const a = el("a", "section-tile");
+            a.href = "/codes/" + codeId + "/nodes/" + node.id;
+            a.dataset.link = "";
+            const summary = el("span", "section-tile-text");
+            summary.append(el("strong", "", node.title),
+                           el("small", "", type ? type.name : "Раздел кодекса"));
+            a.append(el("span", "section-tile-number", node.number),
+                     summary, el("span", "section-tile-arrow", "↗"));
+            return a;
+        };
+        subnodes.slice(0, 24).forEach(node => sectionGrid.append(renderSubnode(node)));
+        sections.append(sectionGrid);
+        if (subnodes.length > 24) {
+            const more = el("button", "button ghost", "Показать остальные разделы (" + (subnodes.length - 24) + ")");
+            more.type = "button";
+            more.onclick = () => {
+                subnodes.slice(24).forEach(node => sectionGrid.append(renderSubnode(node)));
+                more.remove();
+            };
+            sections.append(more);
+        }
+        main.append(sections);
+    }
     const heading = el("div", "section-heading");
-    heading.append(el("h2", "", "Текст законодательства"));
+    heading.append(el("h2", "", selected ? "Статьи раздела" : "Статьи в корне кодекса"));
     if (isAdmin()) {
         const create = el("button", "button primary", "Создать статью");
         create.onclick = () => openEditor(null, codeId, nodeId);
         heading.append(create);
     }
     main.append(heading);
-    const cards = el("section");
-    const status = el("div", "load-status");
-    main.append(cards, status);
-    reading = {codeId,nodeId,cards,status,cursor:null,hasMore:true,loading:false,
-               targetId:targetId || null,restoreScroll: targetId ? null : (
-                   options.restore ? (options.scrollY ?? Number(sessionStorage.getItem("sas-scroll:" + location.pathname) || 0)) : null)};
+    const cards = el("section", "reader-articles");
+    cards.setAttribute("aria-label", "Текст статей");
+    const loadStatus = el("div", "load-status");
+    loadStatus.setAttribute("role", "status");
+    main.append(cards, loadStatus);
+    reading = {
+        codeId, nodeId, cards, status:loadStatus, cursor:null, hasMore:true, loading:false,
+        loaded:0, count, emptyMessage: subnodes.length ?
+            "В этом разделе пока нет отдельных статей. Выберите подраздел выше или в боковом содержании." :
+            "В данном разделе ещё нет опубликованных статей.",
+        targetId: targetId || null,
+        restoreScroll: targetId ? null : (options.restore ?
+             (options.scrollY ?? Number(sessionStorage.getItem("sas-scroll:" + location.pathname) || 0)) : null)
+    };
     activeObserver = new IntersectionObserver(entries => {
-        const visible = entries.filter(e => e.isIntersecting).sort((a,b) => b.intersectionRatio - a.intersectionRatio);
+        const visible = entries.filter(e => e.isIntersecting)
+            .sort((a,b) => b.intersectionRatio - a.intersectionRatio);
         if (visible.length) {
-            document.querySelectorAll(".article-card.reading").forEach(c => c.classList.remove("reading"));
+            document.querySelectorAll(".article-card.reading").forEach(card => card.classList.remove("reading"));
             visible[0].target.classList.add("reading");
             highlightSidebar(visible[0].target.dataset.articleId);
         }
@@ -686,7 +763,7 @@ async function openSection(codeId, nodeId, targetId, options, serial) {
     loadObserver = new IntersectionObserver(entries => {
         if (entries[0].isIntersecting && reading && reading.hasMore) loadNext();
     }, {rootMargin:"400px 0px"});
-    loadObserver.observe(status);
+    loadObserver.observe(loadStatus);
     if (targetId) {
         const position = await api("/articles/" + targetId + "/position");
         if (reading && reading.targetId === targetId) reading.cursor = position.cursor_before;
