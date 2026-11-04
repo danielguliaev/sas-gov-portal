@@ -990,15 +990,19 @@ async function adminHierarchy(area) {
 }
 async function adminAudit(area) {
     const section=adminSection("Закрытый журнал административных операций",
-        "Доступен только суперадминистратору. Записи показывают действие, объект и дату.");
+        "Доступен только суперадминистратору. Журнал показывает источник действия, результат, объект и время без токенов и текстов запросов.");
     const list=await api("/admin/audit?limit=200");
     if(!list.length)section.append(adminInfo("Записей нет."));
     list.forEach(item=>{
         const row=el("div","admin-list-row");
         const name=el("div");
-        name.append(el("strong","",item.action),
+        const outcome=item.result||"success";
+        const state=el("span","audit-result "+(outcome==="success"?"audit-ok":"audit-error"),
+            outcome==="success"?"Выполнено":outcome==="forbidden"?"Отклонено доступом":"Ошибка операции");
+        name.append(el("strong","",item.action),state,
             el("small","",item.object_type+" · "+item.object_id+" · "+item.user_id+
-                      " · "+friendlyDate(item.created_at)));
+                      " · "+friendlyDate(item.created_at)),
+            el("small","",item.source||"api"));
         const details=el("details");
         details.append(el("summary","","Состояние до/после"));
         const pre=el("pre","admin-json",JSON.stringify({
