@@ -175,6 +175,20 @@ def test_throttle_returns_429_and_security_headers(client,headers,monkeypatch):
     _rate_windows.clear()
 
 
+def test_csp_and_browser_permissions_restrict_untrusted_code(client,headers):
+    for path in ("/","/codes/demo-penal",url("/codes")):
+        response=client.get(path,headers=headers["user"])
+        assert response.status_code==200,response.text
+        csp=response.headers["Content-Security-Policy"]
+        assert "script-src 'self'" in csp
+        assert "object-src 'none'" in csp
+        assert "frame-ancestors 'none'" in csp
+        assert "base-uri 'self'" in csp
+        assert "'unsafe-eval'" not in csp
+        assert response.headers["Permissions-Policy"].startswith("camera=()")
+        assert response.headers["X-Frame-Options"]=="DENY"
+
+
 def test_cross_chapter_navigation_uses_structure_before_root_articles(client,headers,admin):
     child=admin("9",parent="demo-intro",title="Поздняя глава")
     root=admin("0",parent=None,title="Ранняя нумерация без главы")
