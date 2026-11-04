@@ -69,7 +69,7 @@ def test_admin_task_workbenches_and_russian_offense_classes(tmp_path):
             page.screenshot(path="test-results/law-library-relations-workbench.png",full_page=True)
             page.locator("#relationsAddType").click()
             expect(page.locator("#relationTypeCreator")).to_be_visible()
-            page.locator("#relationTypeCreator input[type=text]").first.fill("Уточняет")
+            page.locator("#relationTypeCreator input").first.fill("Уточняет")
             page.locator("#relationTypeCreator button[type=submit]").click()
             expect(page.locator(".wb-picker")).to_contain_text("Уточняет",timeout=10000)
             page.locator(".wb-steps [data-step=assign]").click()
