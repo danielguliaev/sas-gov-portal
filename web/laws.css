@@ -332,3 +332,78 @@ kbd {font:600 .73rem/1.3 ui-monospace,Consolas,monospace;background:#edf2f5;bord
   .article-card h2 {font-size:17pt!important;color:black!important;}
   a {color:inherit!important;text-decoration:none!important;}
 }
+
+/* Code hierarchy: root-level articles belong directly under the code title. */
+.tree-code-name {
+  display: block;
+  margin: 17px 10px 12px;
+  color: #536f88;
+  font-size: .76rem;
+  line-height: 1.4;
+  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  border-radius: 4px;
+  padding: 6px 9px;
+}
+.tree-code-name:hover, .tree-code-name.active {
+  color: #153a58;
+  text-decoration: none;
+  background: #eaf0f6;
+}
+.code-tree-root { margin-top: 7px; }
+.article-index { display: grid; gap: 2px; }
+.article-index-link {
+  font-size: .81rem;
+  line-height: 1.45;
+  font-weight: 500;
+  padding: 7px 8px 7px 32px;
+  overflow-wrap: anywhere;
+}
+.root-article-index .article-index-link { padding-left: 33px; }
+.tree-branch > .article-index { margin-top: 2px; }
+.tree-branch > .article-index .article-index-link { padding-left: 11px; }
+.article-index-link.active { font-weight: 750; }
+.nav-index-more {
+  background: transparent;
+  color: #41698a;
+  text-align: left;
+  border: 0;
+  padding: 8px 11px 8px 29px;
+  font: inherit;
+  font-size: .75rem;
+  cursor: pointer;
+}
+.nav-index-more:hover { text-decoration: underline; }
+.nav-index-more[hidden] { display:none; }
+.nav-index-more:disabled { opacity:.65;cursor:progress; }
+.nav-static-resource {
+  font-size: .81rem;
+  font-weight: 600;
+  color: #7d8c99;
+  padding: 9px 13px 9px 33px;
+  line-height: 1.45;
+  cursor: default;
+}
+.static-portal-card { cursor:default; }
+.static-portal-card:hover { transform:none;box-shadow:none; }
+.structure-field-group { display:grid;gap:15px; }
+.structure-field-group[hidden] { display:none!important; }
+.structure-field-group label {display:flex;flex-direction:column;gap:6px;font-size:.83rem;font-weight:650;}
+.structure-field-group input,.structure-field-group select {
+  width:100%;min-width:0;padding:11px 12px;border:1px solid #c7d3dc;
+  border-radius:5px;background:#fff;color:#26425b;font:inherit;
+}
+.structure-field-group .form-grid {display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.structure-field-group fieldset {margin:0;border:1px solid #dce4ea;border-radius:5px;}
+.structure-field-group .checks {display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;}
+.structure-field-group .structure-checkbox {display:flex;flex-direction:row;align-items:center;font-size:.78rem;font-weight:500;}
+.structure-checkbox input {width:auto;accent-color:#274c6a;}
+#structureDialog {width:min(660px,calc(100vw - 26px));max-height:85vh;overflow:auto;}
+#structureStatus {min-height:20px;color:#546b7f;font-size:.77rem;}
+@media(max-width:700px){
+  .structure-field-group .form-grid,.structure-field-group .checks {grid-template-columns:1fr;}
+  .tree-code-name {margin-top:12px;}
+  .brand-text strong {font-size:1.04rem;}
+  .brand-text small {font-size:.69rem;}
+}
