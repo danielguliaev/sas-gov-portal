@@ -86,7 +86,7 @@ def normalize_number(number):
 
 
 def number_sort_key(number, number_format="mixed"):
-    normalized = unicodedata.normalize("NFKC", number).upper()
+    normalized = normalize_number(number) if number_format == "roman" else unicodedata.normalize("NFKC", number).upper()
     if number_format == "roman":
         values = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
         total, previous = 0, 0
