@@ -457,14 +457,57 @@ function treeStorage(codeId) {
 function saveTreeStorage(codeId, value) {
     sessionStorage.setItem("sas-tree:" + codeId, JSON.stringify(value));
 }
+function appendArticleIndex(container, endpoint) {
+    let cursor = null;
+    let hasMore = true;
+    let loading = false;
+    const more = el("button", "nav-index-more", "Показать ещё статьи");
+    more.type = "button";
+    async function fetchNext() {
+        if (loading || !hasMore || !container.isConnected) return;
+        loading = true;
+        more.disabled = true;
+        more.textContent = "Загрузка…";
+        try {
+            const params = new URLSearchParams({limit:"100"});
+            if (cursor) params.set("cursor", cursor);
+            const result = await api(endpoint + "?" + params);
+            if (!container.isConnected) return;
+            result.items.forEach(article => {
+                const item = el("a", "nav-item article-index-link",
+                    article.number + " · " + displayLegalTitle(article.title));
+                item.href = "/articles/" + article.id;
+                item.dataset.link = "";
+                item.dataset.articleId = article.id;
+                if (location.pathname === item.getAttribute("href")) item.classList.add("active");
+                container.insertBefore(item, more);
+            });
+            cursor = result.next_cursor;
+            hasMore = result.has_more;
+            more.hidden = !hasMore;
+        } catch(error) {
+            if (!container.isConnected) return;
+            more.textContent = "Повторить загрузку";
+            more.hidden = false;
+            return;
+        } finally {
+            loading = false;
+            more.disabled = false;
+            if (more.textContent !== "Повторить загрузку") more.textContent = "Показать ещё статьи";
+        }
+    }
+    more.onclick = fetchNext;
+    container.append(more);
+    fetchNext();
+}
 function renderCodeNav(code, selectedNode, directTarget) {
     codeNav.replaceChildren();
-    const heading = el("div", "tree-title", code.name);
-    codeNav.append(heading);
-    const root = el("div");
-    const rootLink = navItem("Статьи корня кодекса", "/codes/" + code.id, "§");
-    if (selectedNode === null) rootLink.classList.add("active");
-    root.append(rootLink);
+    const header = el("a", "tree-code-name", code.name);
+    header.href = "/codes/" + code.id;
+    header.dataset.link = "";
+    if (!selectedNode && location.pathname === header.getAttribute("href")) header.classList.add("active");
+    codeNav.append(header);
+    const root = el("div", "code-tree-root");
     const state = treeStorage(code.id);
     const ancestors = new Set();
     if (selectedNode) {
@@ -476,21 +519,26 @@ function renderCodeNav(code, selectedNode, directTarget) {
         }
     }
     function entry(n, depth, parentContainer) {
-        const wrap = el("div");
+        const wrap = el("div", "code-tree-node");
         const line = el("div", "tree-entry");
         const children = directChildren(treeData.nodes, n.id);
-        const toggle = el("button", "tree-toggle", children.length ? "▸" : "·");
+        const selected = selectedNode === n.id;
+        const toggle = el("button", "tree-toggle", children.length || selected ? "▸" : "·");
         toggle.type = "button";
-        toggle.disabled = !children.length;
-        toggle.setAttribute("aria-label", "Развернуть " + n.title);
+        toggle.disabled = !(children.length || selected);
+        toggle.setAttribute("aria-label", "Развернуть " + displayLegalTitle(n.title));
         const dest = "/codes/" + code.id + "/nodes/" + n.id;
-        const link = el("a", "nav-item", n.number + " · " + n.title);
-        link.href = dest; link.dataset.link = "";
+        const type = treeData.types.find(t => t.id === n.type_id);
+        const typeName = type ? type.name + " " : "";
+        const link = el("a", "nav-item", typeName + n.number + " · " + displayLegalTitle(n.title));
+        link.href = dest;
+        link.dataset.link = "";
         link.dataset.nodeId = n.id;
-        if (selectedNode === n.id) link.classList.add("active");
-        line.append(toggle, link); wrap.append(line);
+        if (selected) link.classList.add("active");
+        line.append(toggle, link);
+        wrap.append(line);
         const branch = el("div", "tree-branch");
-        let opened = state.expanded.includes(n.id) ||
+        let opened = state.expanded.includes(n.id) || selected ||
                      (ancestors.has(n.id) && (directTarget || !state.suppressed.includes(n.id)));
         function update() {
             branch.hidden = !opened;
@@ -507,15 +555,21 @@ function renderCodeNav(code, selectedNode, directTarget) {
             update();
         };
         children.forEach(child => entry(child, depth + 1, branch));
-        if (children.length) wrap.append(branch);
+        if (selected) {
+            const current = el("div", "article-index");
+            current.id = "articleIndex";
+            branch.append(current);
+            appendArticleIndex(current, "/nodes/" + n.id + "/article-index");
+        }
+        if (children.length || selected) wrap.append(branch);
         parentContainer.append(wrap);
     }
     directChildren(treeData.nodes, null).forEach(n => entry(n, 0, root));
+    const topLevelArticles = el("div", "article-index root-article-index");
+    if (!selectedNode) topLevelArticles.id = "articleIndex";
+    root.append(topLevelArticles);
     codeNav.append(root);
-    const articleIndex = el("div", "article-index");
-    articleIndex.id = "articleIndex";
-    articleIndex.append(el("div", "tree-title", "СТАТЬИ РАЗДЕЛА"));
-    codeNav.append(articleIndex);
+    appendArticleIndex(topLevelArticles, "/codes/" + code.id + "/root/article-index");
 }
 function highlightSidebar(articleId) {
     if (!reading) return;
@@ -655,14 +709,6 @@ async function loadNext() {
         result.items.forEach(a => {
             const card = createArticleCard(a);
             state.cards.append(card);
-            const index = document.getElementById("articleIndex");
-            if (index) {
-                const item = el("a", "nav-item article-index-link", a.number + " · " + a.title);
-                item.href = "/articles/" + a.id;
-                item.dataset.link = "";
-                item.dataset.articleId = a.id;
-                index.append(item);
-            }
             if (activeObserver) activeObserver.observe(card);
         });
         state.cursor = result.next_cursor;
@@ -786,7 +832,7 @@ async function openSection(codeId, nodeId, targetId, options, serial) {
         main.append(sections);
     }
     const heading = el("div", "section-heading");
-    heading.append(el("h2", "", selected ? "Статьи раздела" : "Статьи в корне кодекса"));
+    heading.append(el("h2", "", selected ? "Статьи раздела" : "Статьи кодекса"));
     if (isAdmin()) {
         const create = el("button", "button primary", "Создать статью");
         create.onclick = () => openEditor(null, codeId, nodeId);
