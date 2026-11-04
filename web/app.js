@@ -197,7 +197,9 @@ function showError(err) {
     main.replaceChildren();
     pageHeading("Ошибка", "Не удалось открыть ресурс", err.message || "Ошибка загрузки");
     if (err.code === "AUTH_REQUIRED") {
-        const p = el("p", "notice", "Для чтения полного текста требуется вход. Выберите роль в верхней панели.");
+        const p = el("p", "notice", authMode==="oidc" ?
+            "Для чтения полного текста войдите через внешний сервис авторизации." :
+            "Для чтения полного текста требуется вход. Выберите роль в верхней панели.");
         main.append(p);
     }
     const back = el("button", "button", "На главную");
@@ -332,6 +334,7 @@ async function home(guest = false) {
     inner.append(quick);
     if (guest) {
         const login = el("div", "hero-guest",
+            authMode === "oidc" ? "Для просмотра правовых текстов войдите с помощью внешнего сервиса авторизации." :
             "Для просмотра текстов выберите роль в верхней панели. Сведения о законах доступны после входа.");
         inner.append(login);
     }
@@ -1376,8 +1379,9 @@ async function renderRoute(path, options) {
                 await home(true);
             } else {
                 pageHeading("Доступ к правовым ресурсам", "Требуется вход",
+                    authMode==="oidc" ? "Войдите с помощью внешнего сервиса авторизации." :
                     "Для поиска и просмотра правовых текстов выберите роль в верхней панели.");
-                const button = el("button", "button primary", "Выбрать роль");
+                const button = el("button", "button primary", authMode==="oidc" ? "Войти" : "Выбрать роль");
                 button.onclick = () => authMode==="oidc" && authButton ?
                     authButton.click() : roleSelect.focus();
                 main.append(button);
