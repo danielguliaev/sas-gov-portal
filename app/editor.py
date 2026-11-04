@@ -120,7 +120,7 @@ def _number_for_type(number, typ):
     fmt = typ["number_format"]
     if fmt == "numeric" and not key.isdecimal():
         fail(422, "INVALID_NUMBER", "Ожидается цифровой номер.")
-    if fmt == "roman" and not re.fullmatch(r"[IVXLCDM]+", key):
+    if fmt == "roman" and not re.fullmatch(r"M{0,4}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})", key):
         fail(422, "INVALID_NUMBER", "Ожидается римский номер.")
     if fmt == "alpha" and not key.isalpha():
         fail(422, "INVALID_NUMBER", "Ожидается буквенный номер.")
@@ -179,7 +179,7 @@ def create_node(code_id: str, body: dict, current=Depends(actor)):
                    (id,code_id,type_id,parent_id,parent_key,number,number_key,sort_key,title,manual_order)
                    VALUES(?,?,?,?,?,?,?,?,?,?)""",
                   (node_id, code_id, typ["id"], parent_id, parent_key,
-                   number, key, number_sort_key(number), plain(body.get("title"), 250), manual))
+                   number, key, number_sort_key(number, typ["number_format"]), plain(body.get("title"), 250), manual))
         audit(c, current, "node.create", "structure_node", node_id, {}, body)
     return {"id": node_id}
 
