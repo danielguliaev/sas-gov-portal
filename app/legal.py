@@ -49,21 +49,13 @@ def code_tree(code_id: str, current=Depends(actor)):
                         (code_id,))
         nodes = allrows(c, "SELECT * FROM structure_nodes WHERE code_id=? AND status='active'", (code_id,))
         by_type = {t["id"]: t for t in types}
-        nodes.sort(key=lambda n: (
-            n["parent_key"],
-            by_type.get(n["type_id"], {}).get("level_order", 999),
-            n["sort_key"], n["id"]))
-        for parent in set(n["parent_key"] for n in nodes):
-            for type_id in set(n["type_id"] for n in nodes if n["parent_key"] == parent):
-                mode = maybe(c, "SELECT mode FROM sort_modes WHERE parent_key=?", (code_id + ":" + parent + ":" + type_id,))
-                if mode and mode["mode"] == "manual":
-                    subset = [n for n in nodes if n["parent_key"] == parent and n["type_id"] == type_id]
-                    order = {n["id"]: i for i, n in enumerate(sorted(subset,
-                        key=lambda n: (n["manual_order"] if n["manual_order"] is not None else 999999, n["id"])))}
-                    nodes.sort(key=lambda n: (n["parent_key"],
-                        by_type.get(n["type_id"], {}).get("level_order", 999),
-                        order.get(n["id"], 999999) if n["parent_key"] == parent and n["type_id"] == type_id else n["sort_key"],
-                        n["id"]))
+        modes = {r["parent_key"]: r["mode"] for r in allrows(c, "SELECT * FROM sort_modes")}
+        def sort_node(n):
+            mode = modes.get(code_id + ":" + n["parent_key"] + ":" + n["type_id"], "auto")
+            sort_part = (0, n["manual_order"] if n["manual_order"] is not None else 999999) if mode == "manual" else (1, n["sort_key"])
+            return (n["parent_key"], by_type.get(n["type_id"], {}).get("level_order", 999),
+                    n["type_id"], sort_part, n["id"])
+        nodes.sort(key=sort_node)
         return {"code": code, "types": types, "nodes": nodes}
 
 
@@ -75,7 +67,7 @@ def _cursor(value, scope):
         if decoded["scope"] != scope:
             raise ValueError("scope")
         return decoded["sort"], decoded["id"]
-    except (ValueError, KeyError, TypeError):
+    except (ValueError, KeyError, TypeError, UnicodeDecodeError, base64.binascii.Error):
         fail(422, "INVALID_CURSOR", "Неверный курсор продолжения.")
 
 
@@ -131,7 +123,34 @@ def article_position(article_id: str, current=Depends(actor)):
         before = c.execute("""SELECT COUNT(*) FROM articles WHERE code_id=? AND parent_id IS ?
                               AND status='active' AND (sort_key<? OR (sort_key=? AND id<?))""",
                            (a["code_id"], a["parent_id"], a["sort_key"], a["sort_key"], article_id)).fetchone()[0]
-        return {"code_id": a["code_id"], "parent_id": a["parent_id"], "index": before}
+        # Seek directly to the group containing this stable article ID.
+        page_start = before - before % 12
+        start_cursor = None
+        if page_start:
+            predecessor = one(c, """SELECT sort_key,id FROM articles
+                           WHERE code_id=? AND parent_id IS ? AND status='active'
+                           ORDER BY sort_key,id LIMIT 1 OFFSET ?""",
+                           (a["code_id"], a["parent_id"], page_start - 1))
+            scope = a["code_id"] + ":" + (a["parent_id"] or "ROOT")
+            payload = {"sort": predecessor["sort_key"], "id": predecessor["id"], "scope": scope}
+            start_cursor = base64.urlsafe_b64encode(dumps(payload).encode()).decode().rstrip("=")
+        return {"code_id": a["code_id"], "parent_id": a["parent_id"],
+                "index": before, "cursor_before": start_cursor}
+
+
+@router.get("/articles/{article_id}/adjacent")
+def adjacent_articles(article_id: str, current=Depends(actor)):
+    with read_db() as c:
+        a = one(c, "SELECT * FROM articles WHERE id=? AND status='active'", (article_id,))
+        previous = maybe(c, """SELECT id,number,title FROM articles WHERE code_id=?
+                     AND status='active' AND (sort_key<? OR (sort_key=? AND id<?))
+                     ORDER BY sort_key DESC,id DESC LIMIT 1""",
+                     (a["code_id"], a["sort_key"], a["sort_key"], a["id"]))
+        following = maybe(c, """SELECT id,number,title FROM articles WHERE code_id=?
+                     AND status='active' AND (sort_key>? OR (sort_key=? AND id>?))
+                     ORDER BY sort_key,id LIMIT 1""",
+                     (a["code_id"], a["sort_key"], a["sort_key"], a["id"]))
+        return {"previous": previous, "next": following}
 
 
 @router.get("/articles/{article_id}/revisions")
