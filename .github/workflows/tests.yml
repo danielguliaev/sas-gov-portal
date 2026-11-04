@@ -19,7 +19,8 @@ jobs:
       - name: Python tests
         run: pytest -q
       - name: Frontend syntax
-        run: node --check web/app.js
+        run: |
+          for file in web/*.js; do node --check "$file"; done
       - name: Install browser test dependencies
         run: |
           python -m pip install -e ".[browser]"
