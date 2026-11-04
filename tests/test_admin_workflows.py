@@ -188,3 +188,23 @@ def test_cross_chapter_navigation_uses_structure_before_root_articles(client,hea
     assert first.json()["next"]["id"]==child["id"]
     last=client.get(url("/articles/"+root["id"]+"/adjacent"),headers=headers["user"])
     assert last.json()["previous"]["id"]==child["id"]
+
+
+def test_offline_backup_and_restore_are_verified(client,headers,tmp_path):
+    from scripts.db_maintenance import backup,restore,verify
+    path=core.DB_PATH
+    saved=tmp_path/"library-snapshot.sqlite"
+    backup(path,saved)
+    assert saved.is_file()
+    assert 2 in verify(saved)["schema_versions"]
+    response=client.post(url("/articles"),headers=headers["superadmin"],json={
+        "code_id":"demo-penal","number":"916","title":"Временная статья",
+        "categories":["definition"]})
+    assert response.status_code==200,response.text
+    assert response.json()["id"]
+    # The public server is normally stopped before restore. The test's isolated
+    # SQLite connections are idle and exercising the same backup API is safe.
+    restore(path,saved,confirm=True)
+    assert client.get(url("/articles/"+response.json()["id"]),
+                      headers=headers["lawyer"]).status_code==404
+    assert 2 in verify(path)["schema_versions"]
