@@ -1204,6 +1204,8 @@ async function publicationComposer(portalId) {
 async function renderRoute(path, options) {
     const serial = ++lastNavSerial;
     const pathname = new URL(path, location.origin).pathname;
+    // Push navigation starts at the new page heading. Popstate restores the saved position.
+    if (!options.restore) window.scrollTo(0, 0);
     clearReading();
     main.replaceChildren();
     codeNav.replaceChildren();
