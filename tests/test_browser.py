@@ -188,7 +188,7 @@ def test_legislation_portal_desktop_and_mobile(tmp_path):
             expect(page.locator(".admin-panel")).to_contain_text("Категории и пользовательские поля")
             page.locator(".admin-panel > form.admin-form input").first.fill("Практика толкования")
             page.locator(".admin-panel > form.admin-form button[type='submit']").click()
-            expect(page.locator(".admin-subpanel")).to_contain_text("Практика толкования")
+            expect(page.locator(".admin-subpanel").filter(has_text="Практика толкования").first).to_be_visible()
             page.screenshot(path=str(captures / "law-library-admin.png"), full_page=True)
 
             # Archive operations show a server preview and require separate confirmation.
