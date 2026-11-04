@@ -278,8 +278,7 @@ function makeLawCodeCard(code) {
 }
 function makePortalLink(portal) {
     const card = el("div", "portal-card static-portal-card");
-    const mark = el("span", "portal-icon", "SA");
-    card.append(mark, el("strong", "", portal.name),
+    card.append(el("strong", "", portal.name),
         el("p", "", "Самостоятельный ресурс, ссылка будет добавлена позднее."));
     return card;
 }
