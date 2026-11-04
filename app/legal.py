@@ -32,13 +32,44 @@ def portals(current=Depends(actor)):
 
 @router.get("/codes")
 def codes(jurisdiction: str | None = None, current=Depends(actor)):
+    """Catalog metadata without legal fields; counts include only active content."""
     with read_db() as c:
-        sql = "SELECT * FROM codes WHERE status='active'"
+        sql = """SELECT c.*,
+                    COALESCE(a.article_count,0) AS article_count,
+                    COALESCE(n.section_count,0) AS section_count
+                 FROM codes c
+                 LEFT JOIN (
+                    SELECT code_id, COUNT(*) AS article_count FROM articles
+                    WHERE status='active' GROUP BY code_id
+                 ) a ON a.code_id=c.id
+                 LEFT JOIN (
+                    SELECT code_id, COUNT(*) AS section_count FROM structure_nodes
+                    WHERE status='active' GROUP BY code_id
+                 ) n ON n.code_id=c.id
+                 WHERE c.status='active'"""
         args = []
         if jurisdiction:
-            sql += " AND jurisdiction_id=?"
+            sql += " AND c.jurisdiction_id=?"
             args.append(jurisdiction)
-        return allrows(c, sql + " ORDER BY name,id", args)
+        return allrows(c, sql + " ORDER BY c.name,c.id", args)
+
+
+@router.get("/library/overview")
+def library_overview(current=Depends(actor)):
+    """Overview metrics for the reader homepage; no restricted legal attributes."""
+    with read_db() as c:
+        totals = one(c, """SELECT
+              (SELECT COUNT(*) FROM codes WHERE status='active') AS code_count,
+              (SELECT COUNT(*) FROM structure_nodes WHERE status='active') AS section_count,
+              (SELECT COUNT(*) FROM articles WHERE status='active') AS article_count,
+              (SELECT COUNT(*) FROM portal_publications WHERE status='published') AS publication_count""")
+        latest = allrows(c, """SELECT a.id,a.code_id,a.number,a.title,a.is_demo,
+                                 r.published_at,r.sequence,c.name AS code_name
+                              FROM articles a JOIN article_revisions r ON r.id=a.revision_id
+                              JOIN codes c ON c.id=a.code_id
+                              WHERE a.status='active' AND c.status='active'
+                              ORDER BY r.published_at DESC,r.id DESC LIMIT 6""")
+        return {"totals": totals, "recent_revisions": latest}
 
 
 @router.get("/codes/{code_id}/tree")
