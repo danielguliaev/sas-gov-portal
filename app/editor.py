@@ -291,7 +291,7 @@ def create_article(body: dict, current=Depends(actor)):
 
 @router.post("/articles/{article_id}/edit-lock")
 def acquire_lock(article_id: str, body: dict, current=Depends(actor)):
-    _admin(current)
+    require(current, "superadmin", "library_editor")
     session_id = plain(body.get("editor_session_id"), 120)
     if not session_id:
         fail(422, "SESSION_REQUIRED", "Требуется ID сессии редактора.")
@@ -312,7 +312,7 @@ def acquire_lock(article_id: str, body: dict, current=Depends(actor)):
 
 @router.post("/articles/{article_id}/edit-lock/heartbeat")
 def heartbeat_lock(article_id: str, body: dict, current=Depends(actor)):
-    _admin(current)
+    require(current, "superadmin", "library_editor")
     with transaction() as c:
         _check_lock(c, article_id, current, body.get("token"), body.get("editor_session_id"))
         expires = future()
@@ -323,7 +323,7 @@ def heartbeat_lock(article_id: str, body: dict, current=Depends(actor)):
 
 @router.delete("/articles/{article_id}/edit-lock")
 def release_lock(article_id: str, body: dict, current=Depends(actor)):
-    _admin(current)
+    require(current, "superadmin", "library_editor")
     with transaction() as c:
         lock = maybe(c, "SELECT * FROM edit_locks WHERE article_id=?", (article_id,))
         if not lock or lock["user_id"] != current["id"] or lock["editor_session_id"] != body.get("editor_session_id") or not isinstance(body.get("token"), str) or not secrets.compare_digest(
