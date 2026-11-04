@@ -7,17 +7,24 @@
   <meta name="description" content="Законодательная библиотека штата Сан-Андреас — демонстрационный государственный портал">
   <title>Законодательная библиотека · Сан-Андреас</title>
   <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/laws.css">
   <script defer src="/static/app.js"></script>
 </head>
 <body>
+  <a href="#main" class="skip-link">Перейти к содержимому</a>
   <div class="gov-strip">САН-АНДРЕАС · ГОСУДАРСТВЕННЫЕ ЭЛЕКТРОННЫЕ РЕСУРСЫ</div>
   <header class="site-header">
     <div class="header-inner">
-      <button id="menuToggle" class="icon-button menu-toggle" aria-label="Открыть навигацию">☰</button>
+      <button id="menuToggle" class="icon-button menu-toggle" type="button" aria-label="Открыть навигацию" aria-expanded="false" aria-controls="sidebar">☰</button>
       <a class="brand" href="/" data-link>
         <span class="seal" aria-hidden="true">SA</span>
         <span class="brand-text"><strong>Штат Сан-Андреас</strong><small>Законодательная библиотека</small></span>
       </a>
+      <nav class="header-nav" aria-label="Разделы правового портала">
+        <a href="/" data-link>Обзор</a>
+        <a href="/laws" data-link>Каталог законов</a>
+        <a href="/search" data-link>Поиск</a>
+      </nav>
       <div class="header-actions">
         <label class="header-label" for="roleSelect">Тестовый вход</label>
         <select id="roleSelect" aria-label="Тестовая роль">
@@ -45,10 +52,15 @@
         <output id="fontOutput" for="fontScale">100%</output>
       </div>
     </aside>
+    <button type="button" id="navBackdrop" class="nav-backdrop" aria-label="Закрыть меню" tabindex="-1"></button>
     <main id="main" class="main" tabindex="-1" aria-live="polite">
       <section class="loading-page">Загрузка правовых ресурсов…</section>
     </main>
   </div>
+  <footer class="site-footer">
+    <div>© Законодательная библиотека штата Сан-Андреас · Демонстрационный портал</div>
+    <div class="footer-links"><a href="/laws" data-link>Реестр законов</a><a href="/search" data-link>Поиск статей</a><a href="/docs">Документация API</a></div>
+  </footer>
   <dialog id="editorDialog" aria-labelledby="editorTitle">
     <div class="dialog-header"><h2 id="editorTitle">Редактор статьи</h2><button id="closeEditor" class="icon-button" type="button" aria-label="Закрыть редактор">×</button></div>
     <form id="articleForm" novalidate>
