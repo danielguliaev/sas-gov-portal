@@ -37,7 +37,8 @@ def test_reader_retry_and_deep_article_link(tmp_path):
             raise AssertionError("Reader server did not start")
         with sync_playwright() as p:
             browser=p.chromium.launch(headless=True)
-            page=browser.new_page(viewport={"width":1280,"height":800})
+            context=browser.new_context(viewport={"width":1280,"height":800})
+            page=context.new_page()
             page_errors=[]
             page.on("pageerror",lambda err:page_errors.append(str(err)))
             root="/api/v1/articles"
