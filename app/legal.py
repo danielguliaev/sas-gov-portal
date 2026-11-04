@@ -237,7 +237,7 @@ def revision(article_id: str, revision_id: str, current=Depends(actor)):
     with read_db() as c:
         result = one(c, "SELECT * FROM article_revisions WHERE id=? AND article_id=?",
                      (revision_id, article_id))
-        for key in ("categories_json", "custom_values", "sanctions_json", "relations_json", "source_json"):
+        for key in ("categories_json", "custom_values", "sanctions_json", "relations_json", "source_json", "display_snapshot"):
             result[key] = loads(result[key])
         return result
 
