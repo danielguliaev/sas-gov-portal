@@ -106,7 +106,7 @@ async function adminPage(section) {
     else if(section==="codes") await adminCodes(area);
     else if(section==="hierarchy") await adminHierarchyWorkbench(area);
     else if(section==="categories") await adminCategories(area);
-    else if(section==="relations") await adminRelations(area);
+    else if(section==="relations") await adminRelationsWorkbench(area);
     else if(section==="archive") await adminArchive(area);
     else if(section==="audit") await adminAudit(area);
     else throw Error("Неизвестный раздел администрирования.");
