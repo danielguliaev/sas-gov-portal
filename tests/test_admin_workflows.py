@@ -173,3 +173,18 @@ def test_throttle_returns_429_and_security_headers(client,headers,monkeypatch):
     assert third.json()["error"]["code"]=="RATE_LIMITED"
     monkeypatch.delenv("RATE_LIMIT_PER_MINUTE")
     _rate_windows.clear()
+
+
+def test_cross_chapter_navigation_uses_structure_before_root_articles(client,headers,admin):
+    child=admin("9",parent="demo-intro",title="Поздняя глава")
+    root=admin("0",parent=None,title="Ранняя нумерация без главы")
+    # Even though root has a lower number, the chapter and all its articles come first.
+    previous=client.get(url("/articles/"+child["id"]+"/adjacent"),
+                        headers=headers["user"])
+    assert previous.status_code==200,previous.text
+    assert previous.json()["next"]["id"]==root["id"]
+    first=client.get(url("/articles/demo-article-1/adjacent"),headers=headers["user"])
+    assert first.status_code==200,first.text
+    assert first.json()["next"]["id"]==child["id"]
+    last=client.get(url("/articles/"+root["id"]+"/adjacent"),headers=headers["user"])
+    assert last.json()["previous"]["id"]==child["id"]
