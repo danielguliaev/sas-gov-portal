@@ -1,0 +1,52 @@
+# Приёмка Правовой библиотеки — ТЗ 1.0
+
+**Статус:** рабочая реализация и регрессионные проверки, **не итоговый акт приёмки**.  
+**Область работ:** правовая библиотека, её модели, интерфейсы и API. Самостоятельные государственные сайты исключены из текущей очереди по решению заказчика.  
+**Правило проверки:** «Есть API» не приравнивается к выполнению пользовательского сценария; зелёные тесты не покрывают неупомянутые сценарии.
+
+| Сценарий | Статус | Подтверждение / необходимая дополнительная проверка |
+|---|---|---|
+| AT-01 Доступ и приватные поля | Основной API проверен | test_auth_and_permission_filter; отдельная проверка внешнего IAM с действующим провайдером не выполнена |
+| AT-02 Постоянный ID и уникальный номер | Основной API проверен | test_sanctions_classification_and_unique_number, test_edit_lock_revision_and_expiry, browser create/move |
+| AT-03 Категории обвинения и необязательные поля | Основной API проверен | test_sanctions_classification_and_unique_number, test_field_optional_and_server_side_field_privacy |
+| AT-04 Санкции, null и ноль | Основной API проверен | test_sanctions_classification_and_unique_number; визуальная валидация формы требует расширенного негативного браузерного теста |
+| AT-05 Направленные связи и архив | Основной API проверен | test_relations_and_archive_no_auto_reactivation; доступен административный UI |
+| AT-06 Иерархия, ручной порядок, исключение типа | Основные API и UI реализованы | test_hierarchy_retire_lifts_children_without_changing_article_revision, test_roman_order_and_manual_renumbering; проверить сложные операции drag-and-drop |
+| AT-07 Каскадный архив и восстановление | Основные API и UI реализованы | test_relations_and_archive_no_auto_reactivation, test_restore_can_choose_another_valid_node_location, browser archive/restore; проверить крупные деревья и стресс |
+| AT-08 Конфликтная замена | API проверен | test_atomic_conflict_swap_and_idempotency; проверить пользовательскую форму на нескольких конфликтах |
+| AT-09 Прямая ссылка, lazy loading, Back/Forward | Частично проверен | test_large_chapter_position_returns_seek_cursor, test_pagination_and_deep_link_position; проверить историю браузера с глубокой загрузкой |
+| AT-10 Сессионная позиция и раскрытые ветки | Частично реализовано | Есть sessionStorage и сохранение состояния веток; нужен браузерный тест refresh/back/forward |
+| AT-11 Загрузка, ошибка и Retry | Реализовано, приёмка не завершена | Нужна имитация сбоя сети в Chromium и проверка сохранения карточек и позиции |
+| AT-12 Отсутствие фоновой подмены статьи | Реализовано, приёмка не завершена | Нужен сценарий с двумя вкладками и публикацией новой редакции |
+| AT-13 Сохранение и эксклюзивная блокировка | Основной API проверен | test_edit_lock_revision_and_expiry; браузерный сценарий блокировки двух вкладок отдельно не проверен |
+| AT-14 Heartbeat и истечение | Основной API проверен | test_edit_lock_revision_and_expiry; нужно проверить оставление несохранённого редактора после истечения |
+| AT-15 Принудительное снятие собственной блокировки | Основной API проверен | test_lock_revoke_only_own; пользовательское подтверждение нуждается в отдельном UI-тесте |
+| AT-16 Отказ от несохранённых изменений | Реализовано, приёмка не завершена | UI предупреждает и освобождает блокировку; нужен browser-эксперимент |
+| AT-17 Примечания к редакциям | Основной API проверен | test_annotation_offsets_decode_entities_and_stay_on_old_revision; проверить UX выделения HTML-фрагмента в разных браузерах |
+| AT-18 Официальная публикация и provenance | Основной API проверен | test_portal_publication_editorial_confirmation; внешние самостоятельные сайты отложены |
+| AT-19 Уведомления официальных изменений и избранного | Основной API проверен | test_lawyer_without_favorites_receives_official_change_once, test_library_notifications_are_isolated_from_other_sites; межпортальные центры отложены |
+| AT-20 Конфликты, безопасность, идемпотентность | Основной API проверен | test_atomic_conflict_swap_and_idempotency, test_exclusive_relation_rule_change_is_transactional, test_throttle_returns_429_and_security_headers; остаётся полноценный security review |
+
+## Дополнительно выполнено
+
+Каталог отдельных нормативных актов поддерживает прямую публикацию суперадминистратором, избирательную классификацию опубликованных ведомственных документов, юридический статус в каталоге, архивирование и восстановление, постоянные ID. Регрессионные тесты: test_standalone_act_direct_publish_keeps_id_and_source_is_scoped и test_external_published_document_is_not_law_until_explicit_classification.
+
+Доступны расширенный поиск по юридическим полям, история редакций с сохранением исторических названий справочников, редактор структуры, пользовательские поля и санкции, юридические связи, научные примечания, уведомления, OIDC+PKCE-адаптер, read-only интеграционный API, миграции и проверяемые SQLite-бэкапы.
+
+## Запуск тестов
+
+```powershell
+cd C:\Users\Daniel\sas-gov-portal
+git switch feat/legislative-system-v1
+git pull
+.\.venv-portal\Scripts\python.exe -m pip install -e ".[test,browser]"
+.\.venv-portal\Scripts\python.exe -m pytest -q
+```
+
+Браузерный тест запускается в GitHub Actions с Chromium. Для локального запуска требуется установленный Playwright Chromium и переменная RUN_BROWSER_TESTS=1.
+
+## Что не завершено
+
+Полную приёмку AT-01–AT-20 нельзя объявлять без указанных выше негативных и браузерных испытаний. Внешний IAM-провайдер ещё не предоставил окончательный контракт; production-вход следует испытывать с реальным тестовым провайдером. Промышленная конфигурация базы данных, TLS, резервирования, внешнего мониторинга и правила RPO/RTO/SLO не утверждены; локальная SQLite-сборка не является промышленным многосерверным развёртыванием. Никакие тестовые правовые тексты автоматически не признаны действующим законодательством.
+
+Это состояние не меняет решений по будущим самостоятельным сайтам.
