@@ -180,15 +180,48 @@ def test_legislation_portal_desktop_and_mobile(tmp_path):
             page.screenshot(path=str(captures / "law-portal-hierarchy.png"), full_page=True)
 
 
-            # The administrative workspace is reachable and edits categories through API.
+            # Code creation is discoverable from the catalog and creates a usable hierarchy.
             page.set_viewport_size({"width":1440, "height":900})
+            page.goto(base_url + "/laws")
+            expect(page.locator(".catalog-admin-actions a")).to_be_visible()
+            page.locator(".catalog-admin-actions a").click()
+            expect(page.locator("#newCodeWizard")).to_be_visible()
+            page.locator("#newCodeName").fill("Civil Code Browser")
+            page.locator("#newCodeForm input[name='abbreviation']").fill("CCB")
+            page.locator("#newCodeForm select[name='jurisdiction_id']").select_option("state")
+            page.locator("#newCodeForm select[name='hierarchy_template']").select_option("standard")
+            page.locator("#newCodeForm button[type='submit']").click()
+            expect(page.locator(".tree-code-name")).to_contain_text("Civil Code Browser")
+            assert page.locator(".law-hero").count() == 0
+
+            # The redesigned categories page edits a single category, not every open form.
             page.goto(base_url + "/admin")
             expect(page.locator(".admin-tabs a")).to_have_count(7)
             page.locator(".admin-tabs a[href='/admin/categories']").click()
-            expect(page.locator(".admin-panel")).to_contain_text("Категории и пользовательские поля")
-            page.locator(".admin-panel > form.admin-form input").first.fill("Практика толкования")
-            page.locator(".admin-panel > form.admin-form button[type='submit']").click()
-            expect(page.locator(".admin-subpanel").filter(has_text="Практика толкования").first).to_be_visible()
+            expect(page.locator(".category-workbench")).to_be_visible()
+            expect(page.locator(".category-detail")).to_be_visible()
+            expect(page.locator(".category-picker-item")).not_to_have_count(0)
+            assert page.locator(".category-detail > .category-field-item").count() == 0
+            page.locator("#addCategoryButton").click()
+            page.locator("#newCategoryName").fill("Практика толкования")
+            page.locator("#newCategoryForm button[type='submit']").click()
+            expect(page.locator(".category-detail-heading")).to_contain_text("Практика толкования")
+            expect(page.locator(".category-fields-list .category-field-item")).to_have_count(0)
+            page.locator(".category-add-field > summary").click()
+            page.locator(".category-add-field input").first.fill("Режим толкования")
+            page.locator(".category-add-field select").first.select_option("choice")
+            page.locator(".category-add-field select").nth(1).select_option("multiple")
+            page.locator(".category-add-field button[type='submit']").click()
+            expect(page.locator(".category-field-item")).to_have_count(1)
+            expect(page.locator(".category-field-item")).to_contain_text("Режим толкования")
+            page.locator(".category-option-form input").fill("Обязательное")
+            page.locator(".category-option-form button[type='submit']").click()
+            expect(page.locator(".category-option-row")).to_have_count(1)
+            page.locator(".category-option-row > input").fill("Рекомендуемое")
+            page.locator(".category-option-row input[type='checkbox']").uncheck()
+            page.locator(".category-option-row button").click()
+            expect(page.locator(".category-option-row > input")).to_have_value("Рекомендуемое")
+            expect(page.locator(".category-option-row input[type='checkbox']")).not_to_be_checked()
             page.screenshot(path=str(captures / "law-library-admin.png"), full_page=True)
 
             # Archive operations show a server preview and require separate confirmation.
