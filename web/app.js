@@ -10,6 +10,9 @@ const dialog = document.getElementById("editorDialog");
 const editorForm = document.getElementById("articleForm");
 const toastElement = document.getElementById("toast");
 const role = sessionStorage.getItem("sas-demo-role") || "";
+const CATEGORY_NAMES = {accusation:"Обвинение",punishment_measure:"Мера наказания",
+  aggravating:"Отягчающие обстоятельства",mitigating:"Смягчающие обстоятельства",
+  auxiliary:"Вспомогательная мера",definition:"Определение"};
 roleSelect.value = role;
 let currentUser = null;
 let allCodes = [];
@@ -302,13 +305,15 @@ function renderCodeNav(code, selectedNode, directTarget) {
     }
     directChildren(treeData.nodes, null).forEach(n => entry(n, 0, root));
     codeNav.append(root);
+    const articleIndex = el("div", "article-index");
+    articleIndex.id = "articleIndex";
+    articleIndex.append(el("div", "tree-title", "СТАТЬИ РАЗДЕЛА"));
+    codeNav.append(articleIndex);
 }
 function highlightSidebar(articleId) {
     if (!reading) return;
-    const card = document.getElementById("card-" + articleId);
-    if (!card) return;
-    document.querySelectorAll(".tree-entry .nav-item").forEach(e => e.classList.remove("reading-active"));
-    const link = document.querySelector('[data-node-id="' + (reading.nodeId || "") + '"]');
+    document.querySelectorAll(".article-index-link.active").forEach(a => a.classList.remove("active"));
+    const link = document.querySelector('.article-index-link[data-article-id="' + articleId + '"]');
     if (link) {
         link.classList.add("active");
         link.scrollIntoView({block:"nearest"});
@@ -341,7 +346,7 @@ function createArticleCard(a) {
         details.append(el("summary", "", "Дополнительные юридические сведения"));
         const dl = el("dl");
         const fields = [
-            ["Категории", a.categories.join(", ")],
+            ["Категории", a.categories.map(c => CATEGORY_NAMES[c] || c).join(", ")],
             ["Уголовно-правовой класс", text(a.criminal_class)],
             ["Лишение свободы (месяцы)", text(a.sanctions.prison_min_months) + " — " + text(a.sanctions.prison_max_months)],
             ["Штраф (USD)", text(a.sanctions.fine_min_usd) + " — " + text(a.sanctions.fine_max_usd)]
@@ -398,6 +403,22 @@ function createArticleCard(a) {
         actions.append(edit);
     }
     card.append(actions);
+    if (location.pathname === "/articles/" + a.id) {
+        const neighbors = el("div", "article-actions");
+        api("/articles/" + a.id + "/adjacent").then(items => {
+            if (!card.isConnected) return;
+            [["previous","← Предыдущая"],["next","Следующая →"]].forEach(pair => {
+                const target = items[pair[0]];
+                if (!target) return;
+                const aLink = el("a", "button ghost", pair[1] + " · " + target.number);
+                aLink.href = "/articles/" + target.id;
+                aLink.dataset.link = "";
+                aLink.title = target.title;
+                neighbors.append(aLink);
+            });
+        }).catch(() => {});
+        card.append(neighbors);
+    }
     return card;
 }
 async function loadNext() {
@@ -415,6 +436,14 @@ async function loadNext() {
         result.items.forEach(a => {
             const card = createArticleCard(a);
             state.cards.append(card);
+            const index = document.getElementById("articleIndex");
+            if (index) {
+                const item = el("a", "nav-item article-index-link", a.number + " · " + a.title);
+                item.href = "/articles/" + a.id;
+                item.dataset.link = "";
+                item.dataset.articleId = a.id;
+                index.append(item);
+            }
             if (activeObserver) activeObserver.observe(card);
         });
         state.cursor = result.next_cursor;
@@ -486,6 +515,10 @@ async function openSection(codeId, nodeId, targetId, options, serial) {
         if (entries[0].isIntersecting && reading && reading.hasMore) loadNext();
     }, {rootMargin:"400px 0px"});
     loadObserver.observe(status);
+    if (targetId) {
+        const position = await api("/articles/" + targetId + "/position");
+        if (reading && reading.targetId === targetId) reading.cursor = position.cursor_before;
+    }
     await loadNext();
 }
 async function searchPage() {
