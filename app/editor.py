@@ -705,6 +705,8 @@ def restore_batch(body: dict, idempotency_key: str | None = Header(None), curren
                 if batch["root_node_id"]:
                     root = one(c, "SELECT * FROM structure_nodes WHERE id=?",
                                (batch["root_node_id"],))
+                    if new_parent_id in preview["node_ids"]:
+                        fail(422, "HIERARCHY_CYCLE", "Нельзя восстановить раздел внутри его же поддерева.")
                     validate_parent(c, root["code_id"], new_parent_id, root["type_id"])
                     conflict = maybe(c, """SELECT id FROM structure_nodes WHERE code_id=? AND
                             type_id=? AND parent_key=? AND number_key=? AND status='active'
