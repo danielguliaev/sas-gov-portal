@@ -639,6 +639,7 @@ function createArticleCard(a) {
         }
     }).catch(() => {});
     card.append(relationBox);
+    if(isLawyer())attachArticleAnnotations(card,a,textBlock);
     const actions = el("div", "article-actions");
     const open = el("a", "button ghost", "Постоянная ссылка");
     open.href = "/articles/" + a.id; open.dataset.link = "";
@@ -1154,21 +1155,67 @@ async function precedentPage() {
     });
 }
 async function revisionsPage(id) {
-    const a=await api("/articles/"+id);
-    pageHeading("Архив редакций", "История статьи "+a.number, displayLegalTitle(a.title));
-    const list=await api("/articles/"+id+"/revisions");
-    list.forEach(r => {
-        const box=el("section","panel");
-        box.append(el("h2","","Редакция "+r.sequence+" · "+friendlyDate(r.published_at)),
-                   el("p","muted",r.change_reason || "Основание не указано"));
-        const show=el("button","button ghost","Показать текст редакции");
-        show.onclick=async()=>{
-            try {const data=await api("/articles/"+id+"/revisions/"+r.id);
-                const t=el("div","article-text");t.innerHTML=data.text_rich;box.append(t);show.remove();}
-            catch(e){notify(e.message);}
-        };
-        box.append(show);main.append(box);
-    });
+    const article=await api("/articles/"+id);
+    const requested=new URLSearchParams(location.search).get("revision");
+    main.append(breadcrumb([{label:"Каталог",href:"/laws"},
+        {label:"Статья "+article.number,href:"/articles/"+id},
+        {label:"История редакций"}]));
+    pageHeading("Архив редакций","История статьи "+article.number,displayLegalTitle(article.title));
+    const versions=await api("/articles/"+id+"/revisions");
+    for(const version of versions){
+        const section=el("section","panel revision-panel");
+        section.id="revision-"+version.id;
+        section.append(el("h2","","Редакция "+version.sequence+" · "+
+                friendlyDate(version.published_at)),
+            el("p","muted",version.change_reason||"Основание не указано"));
+        try {
+            const source=JSON.parse(version.source_json||"{}");
+            if(source.publication_id){
+                section.append(el("p","muted","Официальный источник: "+
+                    (source.issuer||"Не указан")+" · "+
+                    friendlyDate(source.published_at)));
+                section.append(adminLink("Открыть публикацию",
+                    "/publications/"+source.publication_id));
+            }else{
+                section.append(el("p","muted","Внутренняя редакционная операция."));
+            }
+        }catch(_) {}
+        const content=el("div","revision-content");
+        const show=adminButton("Показать текст и сведения редакции",async()=>{
+            show.disabled=true;
+            try{
+                const data=await api("/articles/"+id+"/revisions/"+version.id);
+                const rich=el("div","article-text");
+                rich.innerHTML=data.text_rich;
+                content.append(rich);
+                const details=el("details","detail-block");
+                details.append(el("summary","","Юридическое состояние этой редакции"));
+                const pre=el("pre","admin-json");
+                pre.textContent=JSON.stringify({
+                    categories:data.categories_json,
+                    custom_values:data.custom_values,
+                    criminal_class:data.criminal_class,
+                    sanctions:data.sanctions_json,
+                    relations:data.relations_json,
+                    provenance:data.source_json
+                },null,2);
+                details.append(pre);
+                content.append(details);
+                if(isLawyer()){
+                    const notes=el("div","annotation-list");
+                    content.append(el("h3","","Научные примечания"),notes);
+                    await renderRevisionAnnotations(id,version.id,notes);
+                }
+                show.remove();
+            }catch(error){notify(error.message);show.disabled=false;}
+        });
+        section.append(show,content);
+        main.append(section);
+        if(requested===version.id){
+            show.click();
+            requestAnimationFrame(()=>section.scrollIntoView({block:"start"}));
+        }
+    }
 }
 async function billListPage() {
     pageHeading("Законодательный орган", "Законопроекты",
