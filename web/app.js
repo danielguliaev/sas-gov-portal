@@ -1579,7 +1579,18 @@ async function openEditor(article, codeId, nodeId) {
         renderEditorCustomFields();
         dialog.showModal();
         if(state.token)heartbeatTimer=setInterval(()=>heartbeatEditor(state),60000);
-    }catch(e){notify(e.message);}
+    }catch(e){
+        if(article && e.code==="EDIT_LOCK_CONFLICT" &&
+           confirm("Статья уже заблокирована для редактирования. Попробовать принудительно снять свою блокировку с другого устройства? Чужую блокировку снять нельзя.")){
+            try{
+                await api("/articles/"+article.id+"/edit-lock/revoke",
+                    {method:"POST",body:{confirm:true}});
+                notify("Собственная блокировка отозвана.");
+                await openEditor(article,codeId,nodeId);
+                return;
+            }catch(error){notify(error.message);}
+        }else notify(e.message);
+    }
 }
 async function heartbeatEditor(state) {
     if(editorState!==state||!state.token)return;
@@ -1602,7 +1613,23 @@ editorForm.addEventListener("submit",async event=>{
     event.preventDefault();
     if(!editorState)return;
     const state=editorState;
-    const body=collectEditorBody();
+    let body;
+    try{
+        body=collectEditorBody();
+        for(const [min,max] of [["prison_min_months","prison_max_months"],
+                                ["fine_min_usd","fine_max_usd"]]){
+            const a=body.sanctions[min],b=body.sanctions[max];
+            if(a!==null && (!Number.isInteger(a)||a<0) || b!==null && (!Number.isInteger(b)||b<0))
+                throw Error("Санкции должны быть целыми неотрицательными числами.");
+            if(a!==null && b!==null && a>b)
+                throw Error("Минимальное значение санкции не может превышать максимальное.");
+        }
+        if(body.categories.includes("accusation")&&!body.criminal_class)
+            throw Error("Для категории «Обвинение» требуется уголовно-правовой класс.");
+    }catch(error){
+        document.getElementById("editorStatus").textContent=error.message;
+        return;
+    }
     const isNew=!state.article;
     const oldParent=state.article ? state.article.parent_id : state.nodeId;
     try{
