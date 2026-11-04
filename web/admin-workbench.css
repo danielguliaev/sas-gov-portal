@@ -8,7 +8,7 @@
 .wb-layout{display:grid;grid-template-columns:minmax(195px,220px) minmax(0,1fr);gap:24px;align-items:start;}
 .wb-nav{padding:6px 0;position:sticky;top:30px;}
 .wb-steps{display:flex;flex-direction:column;gap:7px;}
-.wb-step{width:100%;text-align:left;cursor:pointer;border:1px solid transparent;border-radius:6px;background:transparent;color:#49657d;font:700 .83rem/1.45 inherit;padding:13px 13px;}
+.wb-step{width:100%;text-align:left;cursor:pointer;border:1px solid transparent;border-radius:6px;background:transparent;color:#49657d;font-size:.83rem;font-weight:700;line-height:1.45;font-family:inherit;padding:13px 13px;}
 .wb-step:hover{background:#f0f5f8;}
 .wb-step.active,.wb-step[aria-current=step]{border-color:#d8e3ea;border-left:3px solid #c7a76e;background:#eaf1f6;color:#193f5d;padding-left:11px;}
 .wb-nav-hint{font-size:.72rem;line-height:1.65;color:#8294a4;padding:15px 11px;border-top:1px solid #e9eff3;margin:15px 0 0;}
