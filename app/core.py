@@ -280,6 +280,32 @@ def relation_snapshot(c, article_id):
                    (article_id, article_id))
 
 
+def display_snapshot(c, article):
+    """Capture display names now so dictionary renames cannot distort old revisions."""
+    category_ids = loads(article["categories_json"], [])
+    values = loads(article["custom_values"], {})
+    cats = {}
+    for category_id in category_ids:
+        row = maybe(c, "SELECT name FROM categories WHERE id=?", (category_id,))
+        cats[category_id] = row["name"] if row else category_id
+    fields = {}
+    for field_id, value in values.items():
+        f = maybe(c, "SELECT id,name,category_id,field_type FROM category_fields WHERE id=?",
+                  (field_id,))
+        if not f:
+            fields[field_id] = {"name": field_id, "value": value}
+            continue
+        resolved = value
+        if f["field_type"] == "choice":
+            def selected(option_id):
+                opt = maybe(c, "SELECT name FROM field_options WHERE id=?", (option_id,))
+                return {"id": option_id, "name": opt["name"] if opt else option_id}
+            resolved = [selected(x) for x in value] if isinstance(value, list) else selected(value)
+        fields[field_id] = {"name": f["name"], "category_id": f["category_id"],
+                            "field_type": f["field_type"], "value": resolved}
+    return {"categories": cats, "fields": fields}
+
+
 def append_revision(c, article_id, user_id, reason="", provenance=None):
     article = one(c, "SELECT * FROM articles WHERE id=?", (article_id,))
     seq = c.execute("SELECT COALESCE(MAX(sequence),0)+1 FROM article_revisions WHERE article_id=?",
@@ -287,12 +313,14 @@ def append_revision(c, article_id, user_id, reason="", provenance=None):
     revision_id = uid()
     c.execute("""INSERT INTO article_revisions(
       id,article_id,sequence,number,title,text_rich,categories_json,criminal_class,
-      custom_values,sanctions_json,relations_json,source_json,change_reason,published_by,published_at)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+      custom_values,sanctions_json,relations_json,source_json,change_reason,published_by,published_at,
+      display_snapshot)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
       (revision_id, article_id, seq, article["number"], article["title"], article["text_rich"],
        article["categories_json"], article["criminal_class"], article["custom_values"],
        dumps(sanctions_of(article)), dumps(relation_snapshot(c, article_id)),
-       dumps(provenance or {}), plain(reason, 2000), user_id, ts()))
+       dumps(provenance or {}), plain(reason, 2000), user_id, ts(),
+       dumps(display_snapshot(c, article))))
     c.execute("UPDATE articles SET revision_id=?,updated_at=? WHERE id=?",
               (revision_id, ts(), article_id))
     return revision_id
@@ -364,9 +392,20 @@ def init_database():
     c = conn()
     try:
         c.execute("PRAGMA journal_mode=WAL")
-        sql = (Path(__file__).resolve().parent.parent / "db" / "001_initial.sql").read_text()
-        c.executescript(sql)
+        base = Path(__file__).resolve().parent.parent / "db"
+        c.executescript((base / "001_initial.sql").read_text())
         c.execute("INSERT OR IGNORE INTO schema_migrations(version) VALUES(1)")
+        # Upgrade existing local databases exactly once; the DDL and version marker
+        # share a single transaction so a failed upgrade cannot partially apply.
+        if not c.execute("SELECT 1 FROM schema_migrations WHERE version=2").fetchone():
+            c.execute("BEGIN IMMEDIATE")
+            try:
+                c.execute((base / "002_revision_labels.sql").read_text().split(";")[0])
+                c.execute("INSERT INTO schema_migrations(version) VALUES(2)")
+                c.commit()
+            except Exception:
+                c.rollback()
+                raise
         c.commit()
     finally:
         c.close()
