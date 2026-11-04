@@ -90,5 +90,5 @@ def test_v4_migrates_prior_local_database_without_losing_codes(tmp_path):
         row=c.execute("""SELECT id,name,abbreviation,publication_issuer,
                                 publication_reference,published_at FROM codes
                          WHERE id='original-code'""").fetchone()
-    assert version==4
+    assert version==5
     assert row==("original-code","Historic Code","HC",None,None,None)
