@@ -423,6 +423,19 @@ def init_database():
             except Exception:
                 c.rollback()
                 raise
+        if not c.execute("SELECT 1 FROM schema_migrations WHERE version=4").fetchone():
+            c.execute("BEGIN IMMEDIATE")
+            try:
+                for line in (base / "004_code_publication.sql").read_text(
+                    encoding="utf-8").splitlines():
+                    statement = line.strip()
+                    if statement.upper().startswith("ALTER TABLE"):
+                        c.execute(statement.rstrip(";"))
+                c.execute("INSERT INTO schema_migrations(version) VALUES(4)")
+                c.commit()
+            except Exception:
+                c.rollback()
+                raise
         c.commit()
     finally:
         c.close()
