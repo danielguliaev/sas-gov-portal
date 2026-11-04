@@ -179,6 +179,45 @@ def test_legislation_portal_desktop_and_mobile(tmp_path):
             page.set_viewport_size({"width":390, "height":820})
             page.screenshot(path=str(captures / "law-portal-hierarchy.png"), full_page=True)
 
+
+            # The administrative workspace is reachable and edits categories through API.
+            page.set_viewport_size({"width":1440, "height":900})
+            page.goto(base_url + "/admin")
+            expect(page.locator(".admin-tabs a")).to_have_count(7)
+            page.locator(".admin-tabs a[href='/admin/categories']").click()
+            expect(page.locator(".admin-panel")).to_contain_text("Категории и пользовательские поля")
+            page.locator(".admin-panel > form.admin-form input").first.fill("Практика толкования")
+            page.locator(".admin-panel > form.admin-form button[type='submit']").click()
+            expect(page.locator(".admin-subpanel")).to_contain_text("Практика толкования")
+            page.screenshot(path=str(captures / "law-library-admin.png"), full_page=True)
+
+            # Archive operations show a server preview and require separate confirmation.
+            page.goto(base_url + "/admin/archive?article=" + root_article["id"])
+            expect(page.locator(".admin-panel")).to_contain_text("Архивирование и восстановление")
+            page.get_by_role("button", name="Проверить состав архива").click()
+            expect(page.locator(".admin-preview")).to_contain_text(
+                "Предварительный просмотр архивирования")
+            page.on("dialog", lambda dialog: dialog.accept())
+            page.get_by_role("button", name="Подтвердить архивирование").click()
+            expect(page.locator(".admin-list")).to_contain_text("Операция")
+            page.get_by_role("button", name="Просмотреть восстановление").first.click()
+            expect(page.locator(".admin-preview")).to_contain_text("Восстановление")
+            page.get_by_role("button", name="Восстановить").click()
+            expect(page.locator(".admin-panel")).to_contain_text("Архивирование и восстановление")
+            response = page.request.get(base_url + "/api/v1/articles/" + root_article["id"],
+                                        headers={"X-Demo-User": "lawyer"})
+            assert response.status == 200, response.text()
+            assert response.json()["status"] == "active"
+
+            # Lawyer-only search exposes the complete filter surface.
+            page.locator("#roleSelect").select_option("lawyer")
+            page.goto(base_url + "/search?query=Свободная")
+            expect(page.locator(".search-page-filters")).to_be_visible()
+            expect(page.locator("select[name='has_sanctions']")).to_be_visible()
+            expect(page.locator("select[name='field_id']")).to_be_visible()
+            expect(page.locator("select[name='mode']")).to_be_visible()
+            page.screenshot(path=str(captures / "law-library-search.png"), full_page=True)
+
             assert not errors, "JavaScript errors: " + repr(errors)
             browser.close()
     finally:
