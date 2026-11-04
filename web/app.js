@@ -277,12 +277,10 @@ function makeLawCodeCard(code) {
     return card;
 }
 function makePortalLink(portal) {
-    const card = el("a", "portal-card");
-    card.href = "/portals/" + portal.id;
-    card.dataset.link = "";
+    const card = el("div", "portal-card static-portal-card");
     const mark = el("span", "portal-icon", "SA");
     card.append(mark, el("strong", "", portal.name),
-        el("p", "", "Публикации и документы государственного органа"));
+        el("p", "", "Самостоятельный ресурс, ссылка будет добавлена позднее."));
     return card;
 }
 async function home(guest = false) {
@@ -290,7 +288,7 @@ async function home(guest = false) {
     const hero = el("section", "law-hero");
     const inner = el("div", "law-hero-copy");
     inner.append(el("div", "hero-eyebrow", "Единая правовая информационная сеть"),
-                 el("h1", "", "Законодательство штата Сан-Андреас"),
+                 el("h1", "", "Правовая библиотека штата Сан Андреас"),
                  el("p", "", "Кодексы, статьи и официальные публикации в одном пространстве. Изучайте структуру законов, находите нормы и отслеживайте редакции."));
     const searchForm = el("form", "hero-search");
     searchForm.setAttribute("role", "search");
@@ -380,7 +378,7 @@ async function home(guest = false) {
             const a = el("a", "activity-item");
             a.href = "/articles/" + revision.id; a.dataset.link = "";
             const copy = el("div");
-            copy.append(el("strong", "", "Статья " + revision.number + " — " + revision.title),
+            copy.append(el("strong", "", "Статья " + revision.number + " — " + displayLegalTitle(revision.title)),
                 el("small", "", revision.code_name + " · " + friendlyDate(revision.published_at)));
             a.append(copy, el("span", "activity-arrow", "↗"));
             list.append(a);
@@ -391,7 +389,7 @@ async function home(guest = false) {
 
     if (allPortals.length) {
         const agencies = el("section", "home-section home-foot-panel");
-        agencies.append(homeSectionHeading("Государственная сеть", "Порталы органов власти"));
+        agencies.append(homeSectionHeading("Государственная сеть", "Прочие ресурсы"));
         const grid = el("div", "cards-grid");
         allPortals.filter(p => p.id !== "library").slice(0, 6).forEach(p => grid.append(makePortalLink(p)));
         agencies.append(grid);
@@ -784,7 +782,7 @@ async function openSection(codeId, nodeId, targetId, options, serial) {
         trail[trail.length - 1].href = null;
     }
     main.append(breadcrumb(trail));
-    const title = selected ? selected.number + " · " + selected.title : code.name;
+    const title = selected ? selected.number + " · " + displayLegalTitle(selected.title) : code.name;
     pageHeading(code.abbreviation ? "Кодекс " + code.abbreviation : "Законодательный кодекс",
                 title, selected ? "Структурный раздел кодекса «" + code.name + "»." :
                 "Содержание кодекса. Выберите раздел для изучения норм права.");
@@ -814,7 +812,7 @@ async function openSection(codeId, nodeId, targetId, options, serial) {
             a.href = "/codes/" + codeId + "/nodes/" + node.id;
             a.dataset.link = "";
             const summary = el("span", "section-tile-text");
-            summary.append(el("strong", "", node.title),
+            summary.append(el("strong", "", displayLegalTitle(node.title)),
                            el("small", "", type ? type.name : "Раздел кодекса"));
             a.append(el("span", "section-tile-number", node.number),
                      summary, el("span", "section-tile-arrow", "↗"));
@@ -969,7 +967,7 @@ async function searchPage() {
                 const code = allCodes.find(c => c.id === a.code_id);
                 card.append(el("span", "match-code", (code ? code.name : "Кодекс") +
                             " · Статья " + a.number),
-                            el("strong", "", a.title),
+                            el("strong", "", displayLegalTitle(a.title)),
                             el("span", "", "Открыть полный текст статьи"));
                 results.append(card);
             });
@@ -1012,41 +1010,39 @@ async function favoritesPage() {
     }
 }
 async function notificationsPage() {
-    const activePortal = new URLSearchParams(location.search).get("portal") || "library";
-    pageHeading("Личный кабинет", "Центр уведомлений", "Уведомления конкретного государственного портала.");
-    const select = el("select");
-    allPortals.forEach(p => select.append(new Option(p.name,p.id)));
-    select.value = activePortal;
-    select.onchange = () => { history.replaceState({}, "", "/notifications?portal=" + select.value); notificationsPageRerender(select.value); };
-    main.append(select);
-    await notificationsPageRerender(activePortal);
-}
-async function notificationsPageRerender(portalId) {
-    let section = document.getElementById("notificationsList");
-    if (!section) {section = el("section");section.id="notificationsList";main.append(section);}
-    section.replaceChildren();
+    pageHeading("Правовая библиотека", "Центр уведомлений",
+        "События, связанные только с вашей работой в Правовой библиотеке штата Сан Андреас.");
+    const section = el("section", "notifications-list");
+    main.append(section);
     try {
-        const list = await api("/me/notifications?portal_id=" + encodeURIComponent(portalId));
+        const list = await api("/me/notifications");
         if (!list.length) section.append(el("p", "empty", "Уведомлений пока нет."));
         list.forEach(n => {
             const item = el("div", "search-result");
             item.append(el("strong", "", n.title),
-                        el("span", "", friendlyDate(n.created_at) + (n.is_read ? " · Прочитано" : " · Новое")));
-            const link = el("a", "button subtle", "Открыть объект");
-            link.href = portalId === "library" ? "/articles/" + n.object_id : "/publications/" + n.object_id;
-            link.dataset.link = "";
-            item.append(link);
+                el("span", "", friendlyDate(n.created_at) + (n.is_read ? " · Прочитано" : " · Новое")));
+            if (n.object_id && /^[A-Za-z0-9-]+$/.test(n.object_id)) {
+                const link = el("a", "button subtle", "Открыть статью");
+                link.href = "/articles/" + n.object_id;
+                link.dataset.link = "";
+                item.append(link);
+            }
             if (!n.is_read) {
                 const button = el("button", "button subtle", "Отметить прочитанным");
+                button.type = "button";
                 button.onclick = async () => {
-                    try {await api("/me/notifications/" + n.id + "/read",{method:"POST"});button.remove();}
-                    catch(e) {notify(e.message);}
+                    try {
+                        await api("/me/notifications/" + n.id + "/read", {method:"POST"});
+                        button.remove();
+                    } catch(e) { notify(e.message); }
                 };
                 item.append(button);
             }
             section.append(item);
         });
-    } catch(e) { section.append(el("p", "notice", e.message)); }
+    } catch(e) {
+        section.replaceChildren(el("p", "notice", e.message));
+    }
 }
 async function portalPage(portalId) {
     const portal = allPortals.find(p => p.id === portalId);
@@ -1118,7 +1114,7 @@ async function revisionsPage(id) {
 }
 async function billListPage() {
     pageHeading("Законодательный орган", "Законопроекты",
-        "Обсуждения, голосования и последовательность опубликованных результатов. Переходы статусов используют демонстрационный регламент.");
+        "Обсуждения, голосования и последовательность опубликованных результатов. Порядок обработки определяется регламентом.");
     if(hasRole("legislator")){
         const create=el("button","button primary","Новый законопроект");
         create.onclick=async()=>{
