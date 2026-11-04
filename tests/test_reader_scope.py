@@ -65,6 +65,7 @@ def test_public_html_has_new_brand_and_three_roles(client):
     html = response.text
     assert "Правовая библиотека штата Сан Андреас" in html
     assert "Copyright © 2026 State of San Andreas" in html
+    assert '<div class="footer-identity"><span>Правовая библиотека штата Сан Андреас</span>' in html
     assert 'class="seal"' not in html
     assert 'class="demo-banner"' not in html
     assert "Документация API" not in html
