@@ -301,3 +301,26 @@ def test_generic_oidc_pkce_exchange_uses_fixed_configured_provider(client,monkey
     assert captured["url"]=="https://identity.example.org/oauth2/token"
     assert "https%3A%2F%2Flibrary.example.org%2F" in captured["body"]
     assert "evil.example" not in captured["body"]
+
+
+def test_external_published_document_is_not_law_without_classification(client,headers):
+    pub=client.post(url("/portal-publications"),headers=headers["publisher"],json={
+        "portal_id":"government","jurisdiction_id":"state",
+        "title":"Документ исполнительной власти",
+        "document_type":"Постановление","issuer":"Правительство штата",
+        "text_rich":"<p>Текст документа</p>"})
+    assert pub.status_code==200,pub.text
+    published=client.post(url("/portal-publications/"+pub.json()["id"]+"/publish"),
+        headers={**headers["publisher"],"Idempotency-Key":"outside-law-publish"},
+        json={"confirm":True})
+    assert published.status_code==200,published.text
+    aid=pub.json()["id"]
+    assert aid not in [x["id"] for x in client.get(url("/library/acts"),
+                     headers=headers["user"]).json()]
+    assert client.get(url("/library/acts/"+aid),headers=headers["lawyer"]).status_code==404
+    classified=client.post(url("/library/acts/"+aid+"/classify"),
+        headers={**headers["superadmin"],"Idempotency-Key":"classify-official"},
+        json={"confirm":True})
+    assert classified.status_code==200,classified.text
+    assert aid in [x["id"] for x in client.get(url("/library/acts"),
+                    headers=headers["user"]).json()]
