@@ -119,6 +119,37 @@ def test_reader_retry_and_deep_article_link(tmp_path):
             page.go_forward(wait_until="domcontentloaded")
             expect(page).to_have_url(base+"/articles/"+created[3])
             expect(page.locator("#card-"+created[3])).to_be_visible()
+
+            # AT-12: publishing a new revision from a second browser tab must
+            # never replace the open reader's text until an explicit reload.
+            article_id=created[3]
+            existing=page.locator("#card-"+article_id+" .article-text")
+            expect(existing).to_contain_text("Развёрнутое положение закона")
+            writer=page.context.new_page()
+            current=writer.request.get(base+root+"/"+article_id,
+                                       headers={"X-Demo-User":"superadmin"})
+            assert current.status==200,current.text()
+            current_revision=current.json()["revision_id"]
+            editor_session="other-browser-tab"
+            acquired=writer.request.post(base+root+"/"+article_id+"/edit-lock",
+                headers={"X-Demo-User":"superadmin"},
+                data={"editor_session_id":editor_session})
+            assert acquired.status==200,acquired.text()
+            published=writer.request.post(base+root+"/"+article_id+"/revisions",
+                headers={"X-Demo-User":"superadmin"},data={
+                    "base_revision_id":current_revision,
+                    "lock_token":acquired.json()["token"],
+                    "editor_session_id":editor_session,
+                    "text_rich":"<p>Новая редакция из второй вкладки.</p>",
+                    "reason":"Новая публикация"})
+            assert published.status==200,published.text()
+            # The old DOM remains untouched; no background freshness poll.
+            expect(existing).to_contain_text("Развёрнутое положение закона")
+            assert "Новая редакция из второй вкладки" not in existing.inner_text()
+            page.reload()
+            expect(page.locator("#card-"+article_id+" .article-text")).to_contain_text(
+                "Новая редакция из второй вкладки",timeout=15000)
+            writer.close()
             assert not page_errors,page_errors
             browser.close()
     finally:
