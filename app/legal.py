@@ -208,18 +208,47 @@ def article_position(article_id: str, current=Depends(actor)):
 
 @router.get("/articles/{article_id}/adjacent")
 def adjacent_articles(article_id: str, current=Depends(actor)):
+    """Depth-first legal navigation: structural children precede sibling articles."""
     with read_db() as c:
-        a = one(c, "SELECT * FROM articles WHERE id=? AND status='active'", (article_id,))
-        previous = maybe(c, """SELECT id,number,title FROM articles WHERE code_id=?
-                     AND status='active' AND (sort_key<? OR (sort_key=? AND id<?))
-                     ORDER BY sort_key DESC,id DESC LIMIT 1""",
-                     (a["code_id"], a["sort_key"], a["sort_key"], a["id"]))
-        following = maybe(c, """SELECT id,number,title FROM articles WHERE code_id=?
-                     AND status='active' AND (sort_key>? OR (sort_key=? AND id>?))
-                     ORDER BY sort_key,id LIMIT 1""",
-                     (a["code_id"], a["sort_key"], a["sort_key"], a["id"]))
+        a = one(c, "SELECT id,code_id FROM articles WHERE id=? AND status='active'", (article_id,))
+        row = one(c, """WITH RECURSIVE
+            paths(id,path) AS (
+                SELECT n.id,
+                       'A' || printf('%06d',t.level_order) || ':' ||
+                       CASE WHEN m.mode='manual' THEN '0' || printf('%012d',COALESCE(n.manual_order,999999))
+                            ELSE '1' || n.sort_key END || ':' || n.id
+                FROM structure_nodes n JOIN hierarchy_types t ON t.id=n.type_id
+                LEFT JOIN sort_modes m ON m.parent_key=n.code_id || ':' || n.parent_key || ':' || n.type_id
+                WHERE n.code_id=? AND n.status='active' AND n.parent_id IS NULL
+                UNION ALL
+                SELECT n.id, p.path || '/' ||
+                       'A' || printf('%06d',t.level_order) || ':' ||
+                       CASE WHEN m.mode='manual' THEN '0' || printf('%012d',COALESCE(n.manual_order,999999))
+                            ELSE '1' || n.sort_key END || ':' || n.id
+                FROM structure_nodes n JOIN paths p ON p.id=n.parent_id
+                JOIN hierarchy_types t ON t.id=n.type_id
+                LEFT JOIN sort_modes m ON m.parent_key=n.code_id || ':' || n.parent_key || ':' || n.type_id
+                WHERE n.code_id=? AND n.status='active'
+            ),
+            reading_order AS (
+                SELECT a.id,
+                       COALESCE(p.path || '/', '') || 'Z' || a.sort_key || ':' || a.id AS position
+                FROM articles a LEFT JOIN paths p ON p.id=a.parent_id
+                WHERE a.code_id=? AND a.status='active'
+            ),
+            neighbors AS (
+                SELECT id,
+                       LAG(id) OVER(ORDER BY position) AS previous_id,
+                       LEAD(id) OVER(ORDER BY position) AS next_id
+                FROM reading_order
+            )
+            SELECT previous_id,next_id FROM neighbors WHERE id=?""",
+            (a["code_id"],a["code_id"],a["code_id"],article_id))
+        previous = maybe(c, "SELECT id,number,title FROM articles WHERE id=?",
+                         (row["previous_id"],)) if row["previous_id"] else None
+        following = maybe(c, "SELECT id,number,title FROM articles WHERE id=?",
+                          (row["next_id"],)) if row["next_id"] else None
         return {"previous": previous, "next": following}
-
 
 @router.get("/articles/{article_id}/revisions")
 def revisions(article_id: str, current=Depends(actor)):
