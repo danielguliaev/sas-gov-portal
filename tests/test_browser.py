@@ -159,8 +159,8 @@ def test_legislation_portal_desktop_and_mobile(tmp_path):
                 "<p>Размещается в корне кодекса.</p>")
             page.locator("#articleForm button[type='submit']").click()
             expect(page.locator("#editorDialog")).not_to_be_visible()
-            expect(page.locator(".article-card")).to_contain_text("Свободная статья")
-            page.get_by_role("button", name="Редактировать").click()
+            expect(page.locator(".article-card").filter(has_text="Свободная статья")).to_be_visible()
+            page.locator(".article-card").filter(has_text="Свободная статья").get_by_role("button", name="Редактировать").click()
             expect(page.locator("#editorDialog")).to_be_visible()
             target = page.locator("#articleParentSelect option").filter(
                 has_text="Подраздел 1 · Общие условия")
@@ -172,6 +172,7 @@ def test_legislation_portal_desktop_and_mobile(tmp_path):
             expect(page.locator("#articleIndex .article-index-link")).to_contain_text(
                 "85 · Свободная статья")
             page.goto(base_url + "/codes/demo-penal")
+            expect(page.locator(".root-article-index .article-index-link")).to_have_count(1)
             assert not page.locator(".root-article-index").get_by_text(
                 "85 · Свободная статья").count()
 
