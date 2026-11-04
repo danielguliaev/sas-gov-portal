@@ -190,6 +190,8 @@ def test_legislation_portal_desktop_and_mobile(tmp_path):
             page.locator("#newCodeForm input[name='abbreviation']").fill("CCB")
             page.locator("#newCodeForm select[name='jurisdiction_id']").select_option("state")
             page.locator("#newCodeForm select[name='hierarchy_template']").select_option("standard")
+            page.evaluate("window.scrollTo(0,0)")
+            page.screenshot(path=str(captures / "law-library-create-code.png"), full_page=True)
             page.locator("#newCodeForm button[type='submit']").click()
             expect(page.locator(".tree-code-name")).to_contain_text("Civil Code Browser")
             assert page.locator(".law-hero").count() == 0
@@ -222,6 +224,7 @@ def test_legislation_portal_desktop_and_mobile(tmp_path):
             page.locator(".category-option-row button").click()
             expect(page.locator(".category-option-row > input")).to_have_value("Рекомендуемое")
             expect(page.locator(".category-option-row input[type='checkbox']")).not_to_be_checked()
+            page.evaluate("window.scrollTo(0,0)")
             page.screenshot(path=str(captures / "law-library-admin.png"), full_page=True)
 
             # Archive operations show a server preview and require separate confirmation.
