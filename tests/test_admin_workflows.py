@@ -133,3 +133,25 @@ def test_restore_nested_subtree_blocks_own_descendant(client,headers,admin):
     assert error.json()["error"]["code"]=="HIERARCHY_CYCLE"
     assert client.get(url("/nodes/"+child+"/article-index"),
                       headers=headers["user"]).status_code==404
+
+
+def test_readonly_service_api_has_separate_auth_and_no_private_data(client,headers,admin,monkeypatch):
+    import hashlib
+    key="random-key-for-integration-test"
+    monkeypatch.setenv("SERVICE_API_KEY_SHA256",hashlib.sha256(key.encode()).hexdigest())
+    endpoint=url("/integration/articles/demo-article-1")
+    assert client.get(endpoint,headers=headers["superadmin"]).status_code==401
+    wrong=client.get(endpoint,headers={"Authorization":"Bearer wrong"})
+    assert wrong.status_code==401
+    response=client.get(endpoint,headers={"Authorization":"Bearer "+key})
+    assert response.status_code==200,response.text
+    item=response.json()
+    assert item["id"]=="demo-article-1"
+    assert "criminal_class" in item and "sanctions" in item and "relations" in item
+    assert "annotations" not in item and "audit_events" not in item
+    pages=client.get(url("/integration/articles"),params={"code_id":"demo-penal"},
+                     headers={"Authorization":"Bearer "+key})
+    assert pages.status_code==200
+    assert pages.json()["items"]
+    assert client.post(url("/articles"),json={"code_id":"demo-penal","number":"900"},
+                       headers={"Authorization":"Bearer "+key}).status_code==401
