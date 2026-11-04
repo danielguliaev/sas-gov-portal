@@ -178,7 +178,7 @@ def notify(c, recipient_id, portal_id, event_key, title, object_id):
 def actor(request: Request, authorization: str | None = Header(None),
           x_demo_user: str | None = Header(None)):
     # Keep request-derived audit context outside client-editable payloads.
-    source = request.method + " " + getattr(request.scope.get("route"),"path",request.url.path)
+    source = request.method + " " + request.url.path[:240]
     if APP_ENV != "production" and AUTH_MODE == "demo":
         if x_demo_user in DEMO_ROLES:
             identity = {"id": "demo-" + x_demo_user, "roles": DEMO_ROLES[x_demo_user],
