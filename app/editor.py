@@ -2,6 +2,7 @@
 import hashlib
 import secrets
 import sqlite3
+from datetime import date
 
 from fastapi import APIRouter, Depends, Header
 from app.core import (
@@ -72,6 +73,23 @@ def _add_article(c, code_id, body, current):
     return article_id
 
 
+def _code_publication_metadata(body, old=None):
+    """Optional code provenance; absence is not equivalent to official publication."""
+    def field(key, limit):
+        previous = (old.get(key) or "") if old else ""
+        return plain(body.get(key, previous), limit)
+    issuer = field("publication_issuer", 200)
+    reference = field("publication_reference", 250)
+    published = field("published_at", 10)
+    if published:
+        try:
+            if len(published) != 10 or date.fromisoformat(published).isoformat() != published:
+                raise ValueError("Date must be YYYY-MM-DD")
+        except ValueError:
+            fail(422, "INVALID_PUBLICATION_DATE", "Дата публикации должна быть в формате ГГГГ-ММ-ДД.")
+    return issuer or None, reference or None, published or None
+
+
 @router.post("/codes")
 def create_code(body: dict, current=Depends(actor)):
     """Atomically create a code and, optionally, its editable hierarchy template."""
@@ -80,6 +98,7 @@ def create_code(body: dict, current=Depends(actor)):
     abbreviation = plain(body.get("abbreviation", ""), 40).strip()
     jurisdiction_id = body.get("jurisdiction_id")
     template = body.get("hierarchy_template", "empty")
+    issuer, reference, published = _code_publication_metadata(body)
     if not name:
         fail(422, "INVALID_CODE_NAME", "Введите название кодекса.")
     if template not in ("empty", "standard"):
@@ -90,9 +109,10 @@ def create_code(body: dict, current=Depends(actor)):
         if any(row["name"].casefold() == name.casefold() for row in names):
             fail(409, "DUPLICATE_CODE", "В этой юрисдикции кодекс с таким названием уже существует.")
         code_id = uid()
-        c.execute("""INSERT INTO codes(id,jurisdiction_id,name,abbreviation,is_demo)
-                     VALUES(?,?,?,?,0)""",
-                  (code_id, jurisdiction_id, name, abbreviation))
+        c.execute("""INSERT INTO codes(id,jurisdiction_id,name,abbreviation,is_demo,
+                     publication_issuer,publication_reference,published_at)
+                     VALUES(?,?,?,?,0,?,?,?)""",
+                  (code_id, jurisdiction_id, name, abbreviation, issuer, reference, published))
         initial_types = []
         if template == "standard":
             # Hierarchy types are editable per code; a code can also begin empty.
@@ -113,9 +133,39 @@ def create_code(body: dict, current=Depends(actor)):
                 initial_types.append({"id": type_id, "name": level_name})
         audit(c, current, "code.create", "code", code_id, {},
               {"jurisdiction_id": jurisdiction_id, "name": name, "abbreviation": abbreviation,
-               "hierarchy_template": template, "created_type_ids": [t["id"] for t in initial_types]})
+               "hierarchy_template": template, "created_type_ids": [t["id"] for t in initial_types],
+               "publication_issuer": issuer, "publication_reference": reference,
+               "published_at": published})
     return {"id": code_id, "name": name, "hierarchy_template": template,
             "type_count": len(initial_types)}
+
+
+@router.patch("/codes/{code_id}")
+def update_code_metadata(code_id: str, body: dict, current=Depends(actor)):
+    """Edit source information without changing the code's ID or jurisdiction."""
+    _admin(current)
+    if any(key in body for key in ("id", "jurisdiction_id", "status", "is_demo")):
+        fail(422, "IMMUTABLE_CODE", "Идентификатор, юрисдикцию и статус кодекса нельзя изменить здесь.")
+    with transaction() as c:
+        old = one(c, "SELECT * FROM codes WHERE id=? AND status='active'", (code_id,))
+        name = plain(body.get("name", old["name"]), 200)
+        abbreviation = plain(body.get("abbreviation", old["abbreviation"]), 40)
+        if not name:
+            fail(422, "INVALID_CODE_NAME", "Название кодекса не может быть пустым.")
+        others = allrows(c, "SELECT name FROM codes WHERE jurisdiction_id=? AND id<>?",
+                         (old["jurisdiction_id"], code_id))
+        if any(row["name"].casefold() == name.casefold() for row in others):
+            fail(409, "DUPLICATE_CODE", "В этой юрисдикции кодекс с таким названием уже существует.")
+        issuer, reference, published = _code_publication_metadata(body, old)
+        c.execute("""UPDATE codes SET name=?,abbreviation=?,publication_issuer=?,
+                     publication_reference=?,published_at=? WHERE id=?""",
+                  (name, abbreviation, issuer, reference, published, code_id))
+        audit(c, current, "code.metadata.update", "code", code_id, old,
+              {"name": name, "abbreviation": abbreviation, "publication_issuer": issuer,
+               "publication_reference": reference, "published_at": published})
+        return {"id": code_id, "name": name, "abbreviation": abbreviation,
+                "publication_issuer": issuer, "publication_reference": reference,
+                "published_at": published}
 
 
 @router.post("/codes/{code_id}/hierarchy-types")
