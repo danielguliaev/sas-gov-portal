@@ -251,11 +251,14 @@ def test_legislation_portal_desktop_and_mobile(tmp_path):
             page.get_by_role("button", name="Восстановить").click()
             # The restore handler is async. Wait for the server state, not a heading
             # that was already present before the restore request completed.
-            page.wait_for_function("""async (articleId) => {
-                const response = await fetch('/api/v1/articles/' + articleId,
-                    {headers:{'X-Demo-User':'lawyer'}});
-                return response.ok && (await response.json()).status === 'active';
-            }""", arg=root_article["id"], timeout=15000)
+            for _ in range(160):
+                restored = page.request.get(base_url+"/api/v1/articles/"+root_article["id"],
+                    headers={"X-Demo-User":"lawyer"})
+                if restored.ok and restored.json().get("status")=="active":
+                    break
+                time.sleep(.05)
+            else:
+                raise AssertionError("Archive restore did not complete")
             expect(page.locator(".admin-panel")).to_contain_text("Архивирование и восстановление")
 
             # Lawyer-only search exposes the complete filter surface.
