@@ -14,10 +14,10 @@
 | AT-06 Иерархия, ручной порядок, исключение типа | Основные API и UI реализованы | test_hierarchy_retire_lifts_children_without_changing_article_revision, test_roman_order_and_manual_renumbering; проверить сложные операции drag-and-drop |
 | AT-07 Каскадный архив и восстановление | Основные API и UI реализованы | test_relations_and_archive_no_auto_reactivation, test_restore_can_choose_another_valid_node_location, browser archive/restore; проверить крупные деревья и стресс |
 | AT-08 Конфликтная замена | API проверен | test_atomic_conflict_swap_and_idempotency; проверить пользовательскую форму на нескольких конфликтах |
-| AT-09 Прямая ссылка, lazy loading, Back/Forward | Частично проверен | test_large_chapter_position_returns_seek_cursor, test_pagination_and_deep_link_position; проверить историю браузера с глубокой загрузкой |
-| AT-10 Сессионная позиция и раскрытые ветки | Частично реализовано | Есть sessionStorage и сохранение состояния веток; нужен браузерный тест refresh/back/forward |
+| AT-09 Прямая ссылка, lazy loading, Back/Forward | Проверено в Chromium для большой главы | test_large_chapter_position_returns_seek_cursor, test_pagination_and_deep_link_position, test_reader_retry_and_deep_article_link: seek и возврат по истории; нужны дополнительные сочетания вложенности |
+| AT-10 Сессионная позиция и раскрытые ветки | Частично проверено | sessionStorage и история статьи с позицией проверены в Chromium; отдельные сценарии сохранения вручную свернутых веток после refresh требуют дополнительного теста |
 | AT-11 Загрузка, ошибка и Retry | Проверено в Chromium | test_reader_retry_and_deep_article_link: временный сбой курсорной загрузки, сохранение 12 карточек, повторный запрос и отсутствие дубликатов; для окончательной приёмки остаются испытания на других браузерах и в стресс-режиме |
-| AT-12 Отсутствие фоновой подмены статьи | Реализовано, приёмка не завершена | Нужен сценарий с двумя вкладками и публикацией новой редакции |
+| AT-12 Отсутствие фоновой подмены статьи | Браузерный сценарий добавлен | test_reader_retry_and_deep_article_link обновляет статью через вторую вкладку, проверяет неизменность открытого текста и получение новой версии только после refresh |
 | AT-13 Сохранение и эксклюзивная блокировка | Основной API проверен | test_edit_lock_revision_and_expiry; браузерный сценарий блокировки двух вкладок отдельно не проверен |
 | AT-14 Heartbeat и истечение | Основной API проверен | test_edit_lock_revision_and_expiry; нужно проверить оставление несохранённого редактора после истечения |
 | AT-15 Принудительное снятие собственной блокировки | Основной API проверен | test_lock_revoke_only_own; пользовательское подтверждение нуждается в отдельном UI-тесте |
@@ -25,7 +25,15 @@
 | AT-17 Примечания к редакциям | Основной API проверен | test_annotation_offsets_decode_entities_and_stay_on_old_revision; проверить UX выделения HTML-фрагмента в разных браузерах |
 | AT-18 Официальная публикация и provenance | Основной API проверен | test_portal_publication_editorial_confirmation; внешние самостоятельные сайты отложены |
 | AT-19 Уведомления официальных изменений и избранного | Основной API проверен | test_lawyer_without_favorites_receives_official_change_once, test_library_notifications_are_isolated_from_other_sites; межпортальные центры отложены |
-| AT-20 Конфликты, безопасность, идемпотентность | Основной API проверен | test_atomic_conflict_swap_and_idempotency, test_exclusive_relation_rule_change_is_transactional, test_throttle_returns_429_and_security_headers; остаётся полноценный security review |
+| AT-20 Конфликты, безопасность, идемпотентность | Основной API проверен | test_atomic_conflict_swap_and_idempotency, test_exclusive_relation_rule_change_is_transactional, test_audit_includes_source_outcome_and_no_sensitive_payload, test_throttle_returns_429_and_security_headers; остаётся независимый security review |
+
+## Развитие навигации, дерева и журнала (REQ-068, REQ-075—REQ-076, REQ-121, REQ-124)
+
+Настольная боковая панель сворачивается и разворачивается доступной кнопкой с сохранением состояния в sessionStorage; мобильное меню остаётся самостоятельным. Внутренние переходы сохраняют положение прокрутки в истории браузера, а Back/Forward при необходимости подгружают карточки до восстановления позиции. Отдельно проверяется прямой адрес статьи, у которого приоритет над чужой сохранённой позицией.
+
+Появился GET /api/v1/codes/{code_id}/structure-index с курсором, родительским узлом, размером страницы 1—100, проверкой родителя и выдачей только метаданных структурных элементов. Это первый этап оптимизации, **веб-клиент пока использует полный GET /tree**, так что REQ-124 полностью ещё не закрыт.
+
+Новая миграция db/005_audit_outcomes.sql сохраняет источник, результат и HTTP-статус операции. Успешные административные изменения фиксируются в одной транзакции с юридическими данными; неуспешные запросы авторизованных администраторов журналируются отдельной транзакцией без запроса, паролей и токенов. Тест tests/test_audit_outcomes.py проверяет полноту и приватность таких событий. Журнал читается только суперадминистратором.
 
 ## Дополнительно выполнено
 
