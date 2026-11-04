@@ -86,6 +86,36 @@ def test_reader_retry_and_deep_article_link(tmp_path):
             expect(page.locator("#card-"+created[-1])).to_contain_text(
                 "Норма для пагинации 13")
             assert page.locator(".tree-code-name").count()==1
+
+            # REQ-068: collapse remains reversible and persists in the tab session.
+            toggle=page.locator("#sidebarToggle")
+            expect(toggle).to_be_visible()
+            expect(toggle).to_have_attribute("aria-expanded","true")
+            toggle.click()
+            expect(page.locator("#layout")).to_have_class("layout sidebar-collapsed")
+            expect(toggle).to_have_attribute("aria-expanded","false")
+            page.reload()
+            expect(page.locator("#layout")).to_have_class("layout sidebar-collapsed")
+            page.locator("#sidebarToggle").click()
+            expect(page.locator("#layout")).to_have_class("layout")
+
+            # REQ-075/076: a return to a large chapter must load enough cards
+            # to restore its own history position without changing the URL.
+            page.goto(base+"/codes/demo-penal/nodes/demo-intro")
+            expect(page.locator(".article-card")).to_have_count(12,timeout=15000)
+            page.evaluate("window.scrollTo(0, 1800)")
+            page.wait_for_function("window.scrollY >= 1300")
+            saved=page.evaluate("window.scrollY")
+            page.locator(".article-card").nth(4).locator("a[href^='/articles/']").first.click()
+            expect(page).to_have_url(base+"/articles/"+created[3])
+            expect(page.locator("#card-"+created[3])).to_be_visible()
+            page.go_back(wait_until="domcontentloaded")
+            expect(page).to_have_url(base+"/codes/demo-penal/nodes/demo-intro")
+            page.wait_for_function("""(saved) =>
+                Math.abs(window.scrollY - saved) < 70""",arg=saved,timeout=15000)
+            page.go_forward(wait_until="domcontentloaded")
+            expect(page).to_have_url(base+"/articles/"+created[3])
+            expect(page.locator("#card-"+created[3])).to_be_visible()
             assert not page_errors,page_errors
             browser.close()
     finally:
