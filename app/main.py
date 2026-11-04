@@ -64,7 +64,9 @@ async def security_and_throttling(request: Request, call_next):
             if restricted:
                 return JSONResponse({"error":{"code":"RATE_LIMITED",
                     "message":"Слишком много запросов. Повторите позднее."}},
-                    status_code=429,headers={"Retry-After":str(window)})
+                    status_code=429,headers={"Retry-After":str(window),
+                        "Cache-Control":"no-store","X-Content-Type-Options":"nosniff",
+                        "X-Frame-Options":"DENY"})
     started = perf_counter()
     try:
         response = await call_next(request)
