@@ -12,8 +12,7 @@ from app import legal, editor, portals
 @asynccontextmanager
 async def lifespan(_app):
     init_database()
-    if APP_ENV != "production":
-        seed_demo()
+    seed_demo(include_sample=APP_ENV != "production")
     yield
 
 
