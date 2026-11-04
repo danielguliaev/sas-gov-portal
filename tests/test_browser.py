@@ -65,6 +65,7 @@ def test_legislation_portal_desktop_and_mobile(tmp_path):
             page.locator(".section-tile").first.click()
             expect(page.locator(".article-card")).to_have_count(1)
             expect(page.locator(".article-card")).to_contain_text("Пример статьи")
+            expect(page.locator("#articleIndex .article-index-link")).to_have_count(1)
             # A section click must not retain the old scroll position from the previous screen.
             assert page.evaluate("window.scrollY") < 20
             page.screenshot(path=str(captures / "law-portal-reader.png"), full_page=True)
@@ -105,6 +106,7 @@ def test_legislation_portal_desktop_and_mobile(tmp_path):
             )
             assert response.ok, response.text()
             root_article = response.json()
+            page.set_viewport_size({"width":1440, "height":900})
             page.goto(base_url + "/codes/demo-penal")
             expect(page.locator(".tree-code-name")).to_have_text("Penal Code")
             expect(page.locator(".code-tree-root > .root-article-index a")).to_have_count(1)
@@ -144,6 +146,8 @@ def test_legislation_portal_desktop_and_mobile(tmp_path):
             page.locator("#structureForm button[type='submit']").click()
             expect(page.locator(".code-tree-root")).to_contain_text("Подраздел 1 · Общие условия")
             expect(page.locator(".code-tree-root > .root-article-index a")).to_have_count(1)
+            page.screenshot(path=str(captures / "law-portal-code-tree.png"), full_page=True)
+            page.set_viewport_size({"width":390, "height":820})
             page.screenshot(path=str(captures / "law-portal-hierarchy.png"), full_page=True)
 
             assert not errors, "JavaScript errors: " + repr(errors)
