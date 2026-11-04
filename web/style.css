@@ -70,3 +70,6 @@ dialog fieldset{border:1px solid #e1e8ed;margin:16px 0;padding:17px;border-radiu
  .sidebar-collapsed #globalNav{display:grid;}
  .sidebar-collapsed #codeNav,.sidebar-collapsed .sidebar-bottom{display:block;}
 }
+
+/* Preserve native hidden behavior even when button/grid display rules apply. */
+[hidden]{display:none!important;}
