@@ -190,55 +190,227 @@ async function loadContext() {
     const prefs = await api("/me/preferences");
     setFont(prefs.font_scale);
 }
-async function home() {
-    pageHeading("Государственная правовая информационная система", "Законодательство штата Сан-Андреас",
-        "Консолидированные правовые тексты, законодательные документы и опубликованные судебные решения в единой сети государственных порталов.");
-    const panel = el("section", "panel");
-    panel.append(el("div", "eyebrow", "Законодательная библиотека"),
-                 el("h2", "", "Выберите уровень законодательства"),
-                 el("p", "muted", "Разделение источников по юрисдикциям. Содержимое примеров не является официальным правом."));
-    const grid = el("div", "cards-grid");
+function homeSectionHeading(kicker, title, linkLabel, href) {
+    const head = el("div", "home-section-title");
+    const text = el("div");
+    text.append(el("div", "eyebrow", kicker), el("h2", "", title));
+    head.append(text);
+    if (href) {
+        const a = el("a", "section-link", linkLabel || "Все материалы");
+        a.href = href; a.dataset.link = "";
+        head.append(a);
+    }
+    return head;
+}
+function makeJurisdictionCard(id, title, description, glyph, count) {
+    const card = el("a", "jurisdiction-card");
+    card.href = "/jurisdictions/" + id; card.dataset.link = "";
+    const top = el("div", "jurisdiction-card-top");
+    top.append(el("span", "jurisdiction-glyph", glyph));
+    top.append(el("span", "jurisdiction-count",
+        count === null ? "Данные после входа" : count + " " + pluralCode(count)));
+    card.append(top, el("h3", "", title), el("p", "", description),
+                el("span", "card-forward", "Открыть раздел →"));
+    return card;
+}
+function pluralCode(count) {
+    const n = Math.abs(Number(count)) % 100;
+    const last = n % 10;
+    return n >= 11 && n <= 14 ? "кодексов" : last === 1 ? "кодекс" :
+        last >= 2 && last <= 4 ? "кодекса" : "кодексов";
+}
+function makeLawCodeCard(code) {
+    const card = el("a", "law-code-card");
+    card.href = "/codes/" + code.id; card.dataset.link = "";
+    const top = el("div", "code-card-top");
+    top.append(el("span", "code-acronym", code.abbreviation || "КОДЕКС"));
+    if (code.is_demo) top.append(el("span", "code-status", "Демонстрационный"));
+    const meta = el("div", "code-card-meta");
+    meta.append(el("span", "", (code.section_count ?? 0) + " разделов"),
+                el("span", "", (code.article_count ?? 0) + " статей"));
+    card.append(top, el("h3", "", code.name), meta,
+                el("span", "card-forward", "Перейти к содержанию →"));
+    return card;
+}
+function makePortalLink(portal) {
+    const card = el("a", "portal-card");
+    card.href = "/portals/" + portal.id;
+    card.dataset.link = "";
+    const mark = el("span", "portal-icon", "SA");
+    card.append(mark, el("strong", "", portal.name),
+        el("p", "", "Публикации и документы государственного органа"));
+    return card;
+}
+async function home(guest = false) {
+    const overview = guest ? null : await api("/library/overview");
+    const hero = el("section", "law-hero");
+    const inner = el("div", "law-hero-copy");
+    inner.append(el("div", "hero-eyebrow", "Единая правовая информационная сеть"),
+                 el("h1", "", "Законодательство штата Сан-Андреас"),
+                 el("p", "", "Кодексы, статьи и официальные публикации в одном пространстве. Изучайте структуру законов, находите нормы и отслеживайте редакции."));
+    const searchForm = el("form", "hero-search");
+    searchForm.setAttribute("role", "search");
+    const input = el("input");
+    input.type = "search";
+    input.name = "q"; input.maxLength = 200;
+    input.placeholder = "Название, статья или фрагмент закона";
+    input.setAttribute("aria-label", "Поиск по законодательству");
+    const submit = el("button", "", "Найти закон"); submit.type = "submit";
+    searchForm.append(input, submit);
+    searchForm.onsubmit = event => {
+        event.preventDefault();
+        if (input.value.trim()) go("/search?q=" + encodeURIComponent(input.value.trim()));
+        else go("/search");
+    };
+    inner.append(searchForm);
+    const quick = el("div", "hero-quicklinks");
+    quick.append(el("span", "", "Быстрый переход:"));
+    const highlighted = allCodes.slice(0, 3);
+    if (highlighted.length) {
+        highlighted.forEach(code => {
+            const a = el("a", "", code.name);
+            a.href = "/codes/" + code.id; a.dataset.link = "";
+            quick.append(a);
+        });
+    } else {
+        const a = el("a", "", "Каталог законов");
+        a.href = "/laws"; a.dataset.link = "";
+        quick.append(a);
+    }
+    inner.append(quick);
+    if (guest) {
+        const login = el("div", "hero-guest",
+            "Для просмотра текстов выберите тестовую роль в верхней панели. Сведения о законах доступны после входа.");
+        inner.append(login);
+    }
+    hero.append(inner);
+    main.append(hero);
+    const metrics = el("div", "portal-metrics");
     [
-        ["state","Штат Сан-Андреас","Нормативные правовые акты и кодексы штата"],
-        ["county","Округ","Правовые источники окружного уровня"],
-        ["city","Город Лос-Сантос","Муниципальные постановления и кодексы"]
+        ["code_count", "Кодексов"],
+        ["section_count", "Структурных разделов"],
+        ["article_count", "Статей"],
+        ["publication_count", "Публикаций органов"]
+    ].forEach(pair => {
+        const tile = el("div", "portal-metric");
+        const total = overview ? overview.totals[pair[0]] : "—";
+        tile.append(el("strong", "", Number.isInteger(total) ? total.toLocaleString("ru-RU") : total),
+                    el("span", "", pair[1]));
+        metrics.append(tile);
+    });
+    main.append(metrics);
+
+    const jurisdictions = el("section", "home-section");
+    jurisdictions.append(homeSectionHeading("Уровни права", "Выберите юрисдикцию", "Открыть весь реестр", "/laws"));
+    const jurisdictionGrid = el("div", "jurisdiction-grid");
+    [
+        ["state", "Штат Сан-Андреас", "Кодексы и законодательные акты уровня штата.", "§"],
+        ["county", "Окружное право", "Региональные правовые нормы и решения округа.", "◈"],
+        ["city", "Город Лос-Сантос", "Муниципальные акты и правовые документы города.", "▥"]
     ].forEach(item => {
-        const a = el("a", "portal-card");
-        a.href = "/jurisdictions/" + item[0]; a.dataset.link = "";
-        a.append(el("span", "portal-icon", "§"), el("strong", "", item[1]), el("p", "", item[2]));
-        grid.append(a);
+        const count = guest ? null : allCodes.filter(code => code.jurisdiction_id === item[0]).length;
+        jurisdictionGrid.append(makeJurisdictionCard(item[0], item[1], item[2], item[3], count));
     });
-    panel.append(grid);
-    main.append(panel);
-    const heading = el("div", "section-heading");
-    heading.append(el("h2", "", "Государственные порталы"));
-    main.append(heading);
-    const portalsGrid = el("div", "cards-grid");
-    allPortals.filter(p => p.id !== "library").forEach(p => {
-        const a = el("a", "portal-card");
-        a.href = "/portals/" + p.id; a.dataset.link = "";
-        a.append(el("span", "portal-icon", "SA"), el("strong", "", p.name),
-                 el("p", "", "Официальные публикации и информационные документы."));
-        portalsGrid.append(a);
+    jurisdictions.append(jurisdictionGrid);
+    main.append(jurisdictions);
+
+    const featured = el("section", "home-section");
+    featured.append(homeSectionHeading("Кодифицированное право", "Кодексы и собрания законов",
+        "Смотреть все кодексы", "/laws"));
+    if (allCodes.length) {
+        const grid = el("div", "catalog-grid");
+        allCodes.slice(0, 4).forEach(code => grid.append(makeLawCodeCard(code)));
+        featured.append(grid);
+    } else {
+        featured.append(el("div", "empty", guest ?
+            "Каталог кодексов откроется после выбора тестовой роли." :
+            "Кодексы пока не добавлены. Реестр будет дополняться по мере публикации."));
+    }
+    main.append(featured);
+
+    if (overview && overview.recent_revisions.length) {
+        const updates = el("section", "home-section");
+        updates.append(homeSectionHeading("История правовых текстов", "Последние редакции", "Поиск статей", "/search"));
+        const list = el("div", "portal-activity");
+        overview.recent_revisions.forEach(revision => {
+            const a = el("a", "activity-item");
+            a.href = "/articles/" + revision.id; a.dataset.link = "";
+            const copy = el("div");
+            copy.append(el("strong", "", "Статья " + revision.number + " — " + revision.title),
+                el("small", "", revision.code_name + " · " + friendlyDate(revision.published_at) +
+                   (revision.is_demo ? " · демонстрационная" : "")));
+            a.append(copy, el("span", "activity-arrow", "↗"));
+            list.append(a);
+        });
+        updates.append(list);
+        main.append(updates);
+    }
+
+    if (allPortals.length) {
+        const agencies = el("section", "home-section home-foot-panel");
+        agencies.append(homeSectionHeading("Государственная сеть", "Порталы органов власти"));
+        const grid = el("div", "cards-grid");
+        allPortals.filter(p => p.id !== "library").slice(0, 6).forEach(p => grid.append(makePortalLink(p)));
+        agencies.append(grid);
+        main.append(agencies);
+    }
+}
+async function lawCatalog(preselected = "all") {
+    const names = {state:"Штат Сан-Андреас", county:"Округ",city:"Город Лос-Сантос"};
+    if (preselected !== "all" && !Object.hasOwn(names, preselected)) {
+        throw Error("Неизвестная юрисдикция.");
+    }
+    main.append(breadcrumb([{label:"Главная",href:"/"},{label:"Реестр кодексов"}]));
+    pageHeading("Законодательная библиотека", "Каталог законов и кодексов",
+        "Собрание кодексов по юрисдикциям. Выберите источник, чтобы открыть структуру и тексты статей.");
+    const bar = el("div", "catalog-toolbar");
+    const tabs = el("div", "catalog-filters");
+    const buttons = {};
+    const searchInput = el("input", "catalog-filter-search");
+    searchInput.type = "search";searchInput.maxLength = 150;
+    searchInput.placeholder = "Найти кодекс";
+    searchInput.setAttribute("aria-label", "Поиск по названиям кодексов");
+    bar.append(tabs, searchInput);
+    main.append(bar);
+    const summary = el("p", "catalog-summary");
+    const grid = el("div", "catalog-grid");
+    main.append(summary, grid);
+    let selected = preselected;
+    function draw() {
+        Object.entries(buttons).forEach(([id, button]) => {
+            const isActive = selected === id;
+            button.classList.toggle("active", isActive);
+            button.setAttribute("aria-pressed", String(isActive));
+        });
+        const query = searchInput.value.trim().toLocaleLowerCase("ru-RU");
+        const codes = allCodes.filter(code => (selected === "all" || code.jurisdiction_id === selected) &&
+            (code.name + " " + code.abbreviation).toLocaleLowerCase("ru-RU").includes(query));
+        summary.textContent = "Найдено кодексов: " + codes.length;
+        grid.replaceChildren();
+        if (!codes.length) {
+            grid.append(el("div", "empty", "Подходящих кодексов нет. Измените юрисдикцию или поисковый запрос."));
+        }
+        codes.forEach(code => grid.append(makeLawCodeCard(code)));
+    }
+    [["all","Все"],["state","Штат"],["county","Округ"],["city","Лос-Сантос"]].forEach(item => {
+        const button = el("button", "filter-pill", item[1]);
+        button.type = "button";buttons[item[0]] = button;
+        button.onclick = () => {
+            selected = item[0];
+            const url = selected === "all" ? "/laws" : "/laws?jurisdiction=" + selected;
+            history.replaceState(history.state, "", url);
+            draw();
+        };
+        tabs.append(button);
     });
-    main.append(portalsGrid);
+    searchInput.addEventListener("input", draw);
+    draw();
+    const note = el("p", "notice",
+        "Обозначение «Демонстрационный» означает учебное содержимое, а не официально действующий нормативный акт.");
+    main.append(note);
 }
 async function jurisdiction(id) {
-    const labels = {state:"Штат Сан-Андреас",county:"Округ",city:"Город Лос-Сантос"};
-    const label = labels[id];
-    if (!label) throw Error("Неизвестная юрисдикция.");
-    main.append(breadcrumb([{label:"Главная",href:"/"},{label}]));
-    pageHeading("Нормативные источники", label, "Выберите кодекс для просмотра иерархии и действующих статей.");
-    const cards = el("div", "cards-grid");
-    allCodes.filter(c => c.jurisdiction_id === id).forEach(code => {
-        const a = el("a", "portal-card");
-        a.href = "/codes/" + code.id; a.dataset.link = "";
-        a.append(el("span", "portal-icon", "§"), el("strong", "", code.name),
-                 el("p", "", code.is_demo ? "Демонстрационный кодекс" : "Действующие опубликованные тексты"));
-        cards.append(a);
-    });
-    if (!cards.children.length) main.append(el("div", "empty", "В этой юрисдикции кодексы пока не опубликованы."));
-    else main.append(cards);
+    await lawCatalog(id);
 }
 function directChildren(nodes, parent) {
     return nodes.filter(n => n.parent_id === parent);
