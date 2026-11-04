@@ -224,13 +224,19 @@ def validate_article(c, data, code_id, old=None):
             fail(422, "CRIMINAL_CLASS_REQUIRED", "Для обвинения нужен уголовно-правовой класс.")
     else:
         criminal_class = None
-    custom = data.get("custom_values", loads(old["custom_values"], {}) if old else {})
+    old_custom = loads(old["custom_values"], {}) if old else {}
+    custom = data.get("custom_values", old_custom)
     if not isinstance(custom, dict):
         fail(422, "INVALID_CUSTOM_VALUES", "Некорректные пользовательские поля.")
+    custom = dict(custom)
     fields = {f["id"]: f for f in allrows(c,
         "SELECT * FROM category_fields WHERE active=1") if f["category_id"] in categories}
-    if set(custom) - set(fields):
+    removed = set(custom) - set(fields)
+    if removed - set(old_custom):
         fail(422, "INVALID_CUSTOM_FIELD", "Поле не принадлежит назначенной категории.")
+    # Removing a category removes only its current values; immutable revisions retain snapshots.
+    for field_id in removed:
+        custom.pop(field_id, None)
     for field_id, value in custom.items():
         f = fields[field_id]
         if value is None:
