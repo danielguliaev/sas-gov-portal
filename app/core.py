@@ -358,7 +358,7 @@ def init_database():
         c.close()
 
 
-def seed_demo():
+def seed_demo(include_sample=True):
     with transaction() as c:
         for id_, name in (("state", "Штат Сан-Андреас"), ("county", "Округ"), ("city", "Город Лос-Сантос")):
             c.execute("INSERT OR IGNORE INTO jurisdictions VALUES(?,?)", (id_, name))
@@ -372,22 +372,23 @@ def seed_demo():
         c.execute("""INSERT OR IGNORE INTO relation_types
                    (id,name,source_category,target_category,exclusive_target)
                    VALUES('accusation_punishment','Обвинение — мера наказания','accusation','punishment_measure',1)""")
-        c.execute("""INSERT OR IGNORE INTO codes(id,jurisdiction_id,name,abbreviation)
-                   VALUES('demo-penal','state','Penal Code','PC')""")
-        c.execute("""INSERT OR IGNORE INTO hierarchy_types
-                   (id,code_id,name,level_order,allowed_parents)
-                   VALUES('demo-chapter','demo-penal','Глава',1,'["ROOT"]')""")
-        c.execute("""INSERT OR IGNORE INTO structure_nodes
-                   (id,code_id,type_id,parent_key,number,number_key,sort_key,title)
-                   VALUES('demo-intro','demo-penal','demo-chapter','ROOT','I','I','1I','Общие положения (демо)')""")
-        if not maybe(c, "SELECT id FROM articles WHERE id='demo-article-1'"):
-            now = ts()
-            c.execute("""INSERT INTO articles
-                       (id,code_id,parent_id,number,number_key,sort_key,title,text_rich,
-                       categories_json,created_at,updated_at)
-                       VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
-                       ("demo-article-1", "demo-penal", "demo-intro", "1", "1",
-                        number_sort_key("1"), "Демонстрационная норма",
-                        "<p>Пример структуры правового текста. <strong>Не является действующим законом.</strong></p>",
-                        dumps(["definition"]), now, now))
-            append_revision(c, "demo-article-1", "system", "Создание демонстрационных данных")
+        if include_sample:
+            c.execute("""INSERT OR IGNORE INTO codes(id,jurisdiction_id,name,abbreviation)
+                       VALUES('demo-penal','state','Penal Code','PC')""")
+            c.execute("""INSERT OR IGNORE INTO hierarchy_types
+                       (id,code_id,name,level_order,allowed_parents)
+                       VALUES('demo-chapter','demo-penal','Глава',1,'["ROOT"]')""")
+            c.execute("""INSERT OR IGNORE INTO structure_nodes
+                       (id,code_id,type_id,parent_key,number,number_key,sort_key,title)
+                       VALUES('demo-intro','demo-penal','demo-chapter','ROOT','I','I','1I','Общие положения (демо)')""")
+            if not maybe(c, "SELECT id FROM articles WHERE id='demo-article-1'"):
+                now = ts()
+                c.execute("""INSERT INTO articles
+                           (id,code_id,parent_id,number,number_key,sort_key,title,text_rich,
+                           categories_json,created_at,updated_at)
+                           VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                           ("demo-article-1", "demo-penal", "demo-intro", "1", "1",
+                            number_sort_key("1"), "Демонстрационная норма",
+                            "<p>Пример структуры правового текста. <strong>Не является действующим законом.</strong></p>",
+                            dumps(["definition"]), now, now))
+                append_revision(c, "demo-article-1", "system", "Создание демонстрационных данных")
