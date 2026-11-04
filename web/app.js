@@ -44,6 +44,11 @@ function escaped(value) {
     });
 }
 function text(value) { return value === null || value === undefined || value === "" ? "Не указано" : String(value); }
+function criminalClassLabel(value) {
+    const labels={felony:"Тяжкое преступление",misdemeanor:"Проступок",
+        infraction:"Нарушение"};
+    return labels[String(value||"").toLowerCase()] || text(value);
+}
 function displayLegalTitle(value) {
     // Presentation-only cleanup for the exact sample labels shipped with the local seed.
     // Persisted legal text and revision history are never rewritten.
@@ -651,7 +656,7 @@ function createArticleCard(a) {
         const dl = el("dl");
         const fields = [
             ["Категории", a.categories.map(c => CATEGORY_NAMES[c] || c).join(", ")],
-            ["Уголовно-правовой класс", text(a.criminal_class)],
+            ["Уголовно-правовой класс", criminalClassLabel(a.criminal_class)],
             ["Лишение свободы (месяцы)", text(a.sanctions.prison_min_months) + " — " + text(a.sanctions.prison_max_months)],
             ["Штраф (USD)", text(a.sanctions.fine_min_usd) + " — " + text(a.sanctions.fine_max_usd)]
         ];
