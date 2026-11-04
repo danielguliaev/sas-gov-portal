@@ -757,6 +757,150 @@ async function loadNext() {
         state.status.append(retry);
     }
 }
+let structureState = null;
+const structureDialog = document.getElementById("structureDialog");
+const structureForm = document.getElementById("structureForm");
+function allowedParentTypes(type) {
+    try {
+        const parents = typeof type.allowed_parents === "string" ?
+            JSON.parse(type.allowed_parents) : type.allowed_parents;
+        return Array.isArray(parents) ? parents : [];
+    } catch (_) { return []; }
+}
+function openStructureDialog(mode, codeId, parentId = null) {
+    if (!isAdmin()) return;
+    const nodes = treeData && treeData.nodes || [];
+    const types = treeData && treeData.types || [];
+    const parent = nodes.find(n => n.id === parentId) || null;
+    if (mode === "node" && !types.length) mode = "type";
+    if (mode === "edit" && !parent) return notify("Раздел не найден.");
+    structureState = {mode,codeId,parentId};
+    structureForm.reset();
+    document.getElementById("structureStatus").textContent = "";
+    document.getElementById("saveStructure").disabled = false;
+    const nodeFields = document.getElementById("structureNodeFields");
+    const typeFields = document.getElementById("structureTypeFields");
+    nodeFields.hidden = mode === "type";
+    typeFields.hidden = mode !== "type";
+    document.getElementById("structureTitle").textContent = mode === "type" ?
+        "Новый тип структурного уровня" :
+        mode === "edit" ? "Редактирование раздела" : "Новый элемент структуры";
+    if (mode === "type") {
+        const highest = types.reduce((n, t) => Math.max(n, Number(t.level_order) || 0), 0);
+        structureForm.elements.level_order.value = highest + 1;
+        const choices = document.getElementById("structureAllowedParents");
+        choices.replaceChildren();
+        [["ROOT","Корень кодекса"],...types.map(t => [t.id,t.name])].forEach(([id,name]) => {
+            const label = el("label", "structure-checkbox");
+            const checkbox = el("input");
+            checkbox.type = "checkbox";
+            checkbox.name = "parent_type";
+            checkbox.value = id;
+            checkbox.checked = id === "ROOT" && types.length === 0;
+            label.append(checkbox, document.createTextNode(name));
+            choices.append(label);
+        });
+    } else {
+        const typeSelect = document.getElementById("structureTypeSelect");
+        const parentSelect = document.getElementById("structureParentSelect");
+        typeSelect.replaceChildren();
+        types.forEach(t => typeSelect.append(new Option(t.name, t.id)));
+        const compatible = types.find(t => allowedParentTypes(t)
+            .includes(parent ? parent.type_id : "ROOT"));
+        if (mode === "edit") typeSelect.value = parent.type_id;
+        else if (compatible) typeSelect.value = compatible.id;
+        function updateParents() {
+            const chosen = types.find(t => t.id === typeSelect.value);
+            const allowed = chosen ? allowedParentTypes(chosen) : [];
+            parentSelect.replaceChildren();
+            if (allowed.includes("ROOT")) {
+                parentSelect.append(new Option("Корень кодекса", ""));
+            }
+            nodes.filter(n => allowed.includes(n.type_id) && (mode !== "edit" || n.id !== parentId))
+                 .forEach(n => parentSelect.append(new Option(
+                     n.number + " · " + displayLegalTitle(n.title), n.id)));
+            if (parentId && [...parentSelect.options].some(o => o.value === parentId)) {
+                parentSelect.value = parentId;
+            }
+            parentSelect.disabled = mode === "edit" || !parentSelect.options.length;
+            if (!parentSelect.options.length && mode !== "edit") {
+                document.getElementById("structureStatus").textContent =
+                    "Для выбранного типа нет допустимого родителя. Настройте тип уровня.";
+            } else {
+                document.getElementById("structureStatus").textContent = "";
+            }
+        }
+        typeSelect.onchange = updateParents;
+        typeSelect.disabled = mode === "edit";
+        updateParents();
+        if (mode === "edit") {
+            structureForm.elements.number.value = parent.number;
+            structureForm.elements.title.value = parent.title;
+        }
+    }
+    structureDialog.showModal();
+}
+function closeStructureDialog() {
+    if (structureDialog.open) structureDialog.close();
+    structureState = null;
+}
+document.getElementById("closeStructure").onclick = closeStructureDialog;
+document.getElementById("cancelStructure").onclick = closeStructureDialog;
+structureDialog.addEventListener("close", () => { structureState = null; });
+structureForm.addEventListener("submit", async event => {
+    event.preventDefault();
+    if (!structureState) return;
+    const state = {...structureState};
+    const status = document.getElementById("structureStatus");
+    const save = document.getElementById("saveStructure");
+    const fields = structureForm.elements;
+    save.disabled = true;
+    status.textContent = "Сохранение структуры…";
+    try {
+        if (state.mode === "type") {
+            const allowed = [...structureForm.querySelectorAll('input[name="parent_type"]:checked')]
+                .map(input => input.value);
+            if (!allowed.length) throw Error("Выберите хотя бы один разрешённый тип родителя.");
+            const name = fields.type_name.value.trim();
+            if (!name) throw Error("Введите название типа.");
+            await api("/codes/" + state.codeId + "/hierarchy-types", {
+                method:"POST",
+                body:{name, level_order:Number(fields.level_order.value),
+                      number_format:fields.number_format.value,allowed_parents:allowed}
+            });
+            closeStructureDialog();
+            notify("Тип уровня создан. Теперь можно добавить элемент структуры.");
+            go("/codes/" + state.codeId);
+        } else if (state.mode === "edit") {
+            const number = fields.number.value.trim();
+            const title = fields.title.value.trim();
+            if (!number || !title) throw Error("Номер и название обязательны.");
+            await api("/nodes/" + state.parentId, {
+                method:"PATCH",body:{number,title}
+            });
+            closeStructureDialog();
+            notify("Раздел обновлён.");
+            go("/codes/" + state.codeId + "/nodes/" + state.parentId);
+        } else {
+            if (fields.parent_id.disabled) throw Error("Для выбранного типа нет допустимого родителя.");
+            const number = fields.number.value.trim();
+            const title = fields.title.value.trim();
+            if (!number || !title) throw Error("Номер и название обязательны.");
+            const result = await api("/codes/" + state.codeId + "/nodes",{
+                method:"POST",
+                body:{type_id:fields.type_id.value, parent_id:fields.parent_id.value || null,
+                      number,title}
+            });
+            closeStructureDialog();
+            notify("Раздел создан.");
+            go("/codes/" + state.codeId + "/nodes/" + result.id);
+        }
+    } catch(error) {
+        status.textContent = error.message || "Не удалось сохранить структуру.";
+        save.disabled = false;
+    }
+});
+
 async function openSection(codeId, nodeId, targetId, options, serial) {
     const code = allCodes.find(c => c.id === codeId);
     if (!code) throw Error("Кодекс не найден.");
@@ -797,7 +941,23 @@ async function openSection(codeId, nodeId, targetId, options, serial) {
     print.type = "button";
     print.onclick = () => window.print();
     const count = el("span", "reader-count", "Загружено статей: 0");
-    toolbar.append(catalogLink, findInCode, print, count);
+    toolbar.append(catalogLink, findInCode, print);
+    if (isAdmin()) {
+        const addNode = el("button", "button primary", "Добавить часть / раздел");
+        addNode.type = "button";
+        addNode.onclick = () => openStructureDialog("node", codeId, nodeId);
+        const addType = el("button", "button ghost", "Добавить тип уровня");
+        addType.type = "button";
+        addType.onclick = () => openStructureDialog("type", codeId);
+        toolbar.append(addNode, addType);
+        if (selected) {
+            const editNode = el("button", "button ghost", "Изменить раздел");
+            editNode.type = "button";
+            editNode.onclick = () => openStructureDialog("edit", codeId, nodeId);
+            toolbar.append(editNode);
+        }
+    }
+    toolbar.append(count);
     main.append(toolbar);
 
     const subnodes = directChildren(treeData.nodes, nodeId || null);
