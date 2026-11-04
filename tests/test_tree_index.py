@@ -52,3 +52,24 @@ def test_structure_index_paginates_direct_children_and_is_scope_safe(client,head
     assert client.get(api("/codes/demo-penal/structure-index"),
                       headers=reader,params={"limit":101}).status_code==422
     assert client.get(api("/codes/demo-penal/structure-index")).status_code==401
+
+
+def test_reader_skeleton_and_node_context_avoid_whole_code(client,headers):
+    user=headers["user"]
+    skeleton=client.get(api("/codes/demo-penal/tree"),
+                        params={"include_nodes":"false"},headers=user)
+    assert skeleton.status_code==200,skeleton.text
+    data=skeleton.json()
+    assert data["code"]["id"]=="demo-penal"
+    assert data["types"]
+    assert data["nodes"]==[]
+    context=client.get(api("/codes/demo-penal/node-context"),
+                       params={"node_id":"demo-intro"},headers=user)
+    assert context.status_code==200,context.text
+    result=context.json()
+    assert result["node"]["id"]=="demo-intro"
+    assert [item["id"] for item in result["ancestors"]]==["demo-intro"]
+    assert client.get(api("/codes/demo-penal/node-context"),
+        params={"node_id":"wrong"},headers=user).status_code==404
+    assert client.get(api("/codes/demo-penal/node-context"),
+        params={"node_id":"demo-intro"}).status_code==401
