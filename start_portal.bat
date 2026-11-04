@@ -31,7 +31,7 @@ if not exist "%ENV_PY%" (
     call :find_python
     if errorlevel 1 goto no_python
     echo [1/3] Создаётся окружение Python...
-    %PYTHON_CMD% -m venv "%ENV_DIR%"
+    call :create_env
     if errorlevel 1 goto venv_error
 )
 
@@ -69,6 +69,10 @@ start "" /min powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "for ($
 "%ENV_PY%" -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 if errorlevel 1 goto server_error
 exit /b 0
+
+:create_env
+%PYTHON_CMD% -m venv "%ENV_DIR%"
+exit /b %ERRORLEVEL%
 
 :find_python
 py -3.12 -V >nul 2>&1
