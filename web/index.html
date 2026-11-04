@@ -43,7 +43,12 @@
   </header>
   <div class="layout" id="layout">
     <aside class="sidebar" id="sidebar" aria-label="Навигация по законодательству">
-      <div class="sidebar-heading">ПРАВОВЫЕ РЕСУРСЫ</div>
+      <div class="sidebar-header">
+        <div class="sidebar-heading">ПРАВОВЫЕ РЕСУРСЫ</div>
+        <button id="sidebarToggle" class="sidebar-toggle" type="button"
+                aria-label="Свернуть боковую панель" aria-controls="globalNav codeNav"
+                aria-expanded="true" title="Свернуть боковую панель">❮</button>
+      </div>
       <nav id="globalNav" aria-label="Основная навигация"></nav>
       <div id="codeNav"></div>
       <div class="sidebar-bottom">
