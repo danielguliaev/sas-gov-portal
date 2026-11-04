@@ -85,8 +85,8 @@ def test_admin_task_workbenches_and_russian_offense_classes(tmp_path):
 
             page.locator("#roleSelect").select_option("lawyer")
             page.goto(base+"/search")
-            expect(page.locator("select[name=criminal_class]")).to_be_visible()
-            assert page.locator("select[name=criminal_class] option").all_text_contents()[-3:] == [
+            expect(page.locator(".search-page-filters select[name=criminal_class]")).to_be_visible()
+            assert page.locator(".search-page-filters select[name=criminal_class] option").all_text_contents()[-3:] == [
                 "Тяжкое преступление","Проступок","Нарушение"]
             page.locator("#roleSelect").select_option("superadmin")
             page.goto(base+"/codes/demo-penal")
