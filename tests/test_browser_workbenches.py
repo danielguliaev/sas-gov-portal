@@ -113,7 +113,8 @@ def test_admin_task_workbenches_and_russian_offense_classes(tmp_path):
             expect(page.locator("#card-"+article_id+" .annotation-entry")).to_contain_text(
                 "Научное примечание юриста",timeout=10000)
             reader=page.request.get(base+"/api/v1/articles/"+article_id+"/annotations",
-                headers={"X-Demo-User":"user"})
+                headers={"X-Demo-User":"user"},
+                params={"revision_id":annotated.json()["revision_id"]})
             assert reader.status==403,reader.text()
 
             page.goto(base+"/search")
