@@ -96,6 +96,7 @@ def test_admin_task_workbenches_and_russian_offense_classes(tmp_path):
             page.goto(base+"/articles/"+article_id)
             text_block=page.locator("#card-"+article_id+" .article-text")
             expect(text_block).to_be_visible()
+            page.locator("#card-"+article_id+" .annotation-panel > summary").click()
             text_block.evaluate("""(root) => {
                 const range=document.createRange();
                 const text=root.querySelector('p').firstChild;
@@ -109,7 +110,6 @@ def test_admin_task_workbenches_and_russian_offense_classes(tmp_path):
             page.once("dialog",lambda d:d.accept("Научное примечание юриста"))
             page.locator("#card-"+article_id).get_by_role(
                 "button",name="Добавить примечание к выделению").click()
-            page.locator("#card-"+article_id+" .annotation-panel > summary").click()
             expect(page.locator("#card-"+article_id+" .annotation-entry")).to_contain_text(
                 "Научное примечание юриста",timeout=10000)
             reader=page.request.get(base+"/api/v1/articles/"+article_id+"/annotations",
