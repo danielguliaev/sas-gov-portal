@@ -376,11 +376,14 @@ def seed_demo(include_sample=True):
     with transaction() as c:
         for id_, name in (("state", "Штат Сан-Андреас"), ("county", "Округ"), ("city", "Город Лос-Сантос")):
             c.execute("INSERT OR IGNORE INTO jurisdictions VALUES(?,?)", (id_, name))
-        for id_, name in (("library", "Законодательная библиотека"),
+        for id_, name in (("library", "Правовая библиотека штата Сан Андреас"),
                           ("legislature", "Законодательный орган"), ("government", "Правительство штата"),
                           ("secretary", "Секретарь штата"), ("judiciary", "Судебная система"),
                           ("los-santos", "Город Лос-Сантос")):
             c.execute("INSERT OR IGNORE INTO portals(id,name) VALUES(?,?)", (id_, name))
+        # Rebrand only the original bundled portal name; preserve custom names.
+        c.execute("""UPDATE portals SET name='Правовая библиотека штата Сан Андреас'
+                     WHERE id='library' AND name='Законодательная библиотека'""")
         for id_, name in CATEGORIES.items():
             c.execute("INSERT OR IGNORE INTO categories(id,name) VALUES(?,?)", (id_, name))
         c.execute("""INSERT OR IGNORE INTO relation_types
