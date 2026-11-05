@@ -994,7 +994,7 @@ async function openStructureDialog(mode, codeId, parentId = null) {
             }
             nodes.filter(n => allowed.includes(n.type_id) && (mode !== "edit" || n.id !== parentId))
                  .forEach(n => parentSelect.append(new Option(
-                     n.number + " · " + displayLegalTitle(n.title), n.id)));
+                     (n.number?n.number+" · ":"") + displayLegalTitle(n.title), n.id)));
             if (parentId && [...parentSelect.options].some(o => o.value === parentId)) {
                 parentSelect.value = parentId;
             }
@@ -1071,7 +1071,7 @@ structureForm.addEventListener("submit", async event => {
             if (fields.parent_id.disabled) throw Error("Для выбранного типа нет допустимого родителя.");
             const number = fields.number.value.trim();
             const title = fields.title.value.trim();
-            if (!number || !title) throw Error("Номер и название обязательны.");
+            if ((!fields.number.disabled && !number) || !title) throw Error("Заполните название и необходимый номер.");
             const result = await api("/codes/" + state.codeId + "/nodes",{
                 method:"POST",
                 body:{type_id:fields.type_id.value, parent_id:fields.parent_id.value || null,
