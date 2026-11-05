@@ -12,6 +12,28 @@ from app.editor import _check_lock, _notify_favorites
 
 router = APIRouter()
 
+
+@router.get("/senate/dashboard")
+def senate_dashboard(current=Depends(actor)):
+    with read_db() as c:
+        setting = one(c, "SELECT setting_value FROM senate_settings WHERE setting_key='committee_review_days'")
+        committees = allrows(c, "SELECT id,name,description,active FROM senate_committees ORDER BY name")
+        bills = allrows(c, "SELECT id,title,author_id,status,created_at FROM bills ORDER BY created_at DESC LIMIT 100")
+        return {"committee_review_days": int(setting["setting_value"]), "committees": committees, "bills": bills}
+
+
+@router.put("/senate/settings/committee-review-days")
+def update_committee_review_days(body: dict, current=Depends(actor)):
+    require(current, "superadmin")
+    days = body.get("days")
+    if not isinstance(days, int) or not 1 <= days <= 365:
+        fail(422, "INVALID_REVIEW_DAYS", "Укажите срок от 1 до 365 календарных дней.")
+    with transaction() as c:
+        before = one(c, "SELECT setting_value FROM senate_settings WHERE setting_key='committee_review_days'")
+        c.execute("UPDATE senate_settings SET setting_value=?,updated_at=? WHERE setting_key='committee_review_days'", (str(days), ts()))
+        audit(c, current, "senate.settings.committee_review_days", "senate_setting", "committee_review_days", before, {"days": days})
+    return {"days": days}
+
 # DEMONSTRATION ONLY. No legal quorum or voting threshold is inferred in application logic.
 DEFAULT_BILL_TRANSITIONS = {
     "project": ["discussion"],

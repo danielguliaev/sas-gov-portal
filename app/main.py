@@ -174,6 +174,12 @@ app.include_router(acts.router, prefix="/api/v1")
 WEB = Path(__file__).resolve().parent.parent / "web"
 app.mount("/static", StaticFiles(directory=WEB), name="static")
 
+# The Senate is a separate portal on the same database and API process.
+@app.get("/senate", include_in_schema=False)
+@app.get("/senate/{path:path}", include_in_schema=False)
+def senate_site(path: str = ""):
+    return FileResponse(WEB / "senate.html")
+
 
 @app.get("/health")
 def health():

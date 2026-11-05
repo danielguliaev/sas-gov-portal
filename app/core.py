@@ -408,6 +408,20 @@ def init_database():
         base = Path(__file__).resolve().parent.parent / "db"
         c.executescript((base / "001_initial.sql").read_text())
         c.execute("INSERT OR IGNORE INTO schema_migrations(version) VALUES(1)")
+        if not c.execute("SELECT 1 FROM schema_migrations WHERE version=7").fetchone():
+            c.execute("BEGIN IMMEDIATE")
+            try:
+                migration = (base / "007_senate.sql").read_text(encoding="utf-8")
+                for part in migration.split(";"):
+                    statement = "\n".join(line for line in part.splitlines()
+                                           if not line.lstrip().startswith("--")).strip()
+                    if statement:
+                        c.execute(statement)
+                c.execute("INSERT INTO schema_migrations(version) VALUES(7)")
+                c.commit()
+            except Exception:
+                c.rollback()
+                raise
         # Upgrade existing local databases exactly once; the DDL and version marker
         # share a single transaction so a failed upgrade cannot partially apply.
         if not c.execute("SELECT 1 FROM schema_migrations WHERE version=2").fetchone():
