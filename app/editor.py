@@ -266,7 +266,7 @@ def create_node(code_id: str, body: dict, current=Depends(actor)):
         node_id = uid()
         if typ["number_format"] == "none":
             key = "UNNUMBERED:" + node_id
-        sort_key = number_sort_key(title if typ["number_format"] == "none" else number)
+        sort_key = number_sort_key(title if typ["number_format"] == "none" else number, typ["number_format"])
         c.execute("""INSERT INTO structure_nodes
                    (id,code_id,type_id,parent_id,parent_key,number,number_key,sort_key,title,manual_order)
                    VALUES(?,?,?,?,?,?,?,?,?,?)""",

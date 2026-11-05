@@ -461,8 +461,8 @@ kbd {font:600 .73rem/1.3 ui-monospace,Consolas,monospace;background:#edf2f5;bord
   }
   .header-dropdown > summary { min-height:43px;padding:8px 9px; }
   .header-dropdown-panel { top:calc(100% + 1px);max-height:calc(100vh - 150px); }
-  .sidebar { top:135px; }
-  .nav-backdrop { top:135px;height:calc(100vh - 135px); }
+  .sidebar { top:var(--mobile-navigation-top, 135px); }
+  .nav-backdrop { top:var(--mobile-navigation-top, 135px);height:calc(100vh - var(--mobile-navigation-top, 135px)); }
 }
 @media(max-width:420px) {
   .brand-text strong { font-size:.82rem; }

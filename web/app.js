@@ -159,6 +159,15 @@ document.querySelectorAll(".header-dropdown").forEach(dropdown => {
 document.addEventListener("click", event => {
     if (!event.target.closest(".header-dropdown")) closeHeaderDropdowns();
 });
+// Keep the mobile code drawer directly below the sticky two-row header.
+function updateMobileNavigationOffset() {
+    if (window.innerWidth > 700) return;
+    const bottom = Math.max(0, Math.ceil(document.querySelector(".site-header").getBoundingClientRect().bottom));
+    document.documentElement.style.setProperty("--mobile-navigation-top", bottom + "px");
+}
+window.addEventListener("scroll", updateMobileNavigationOffset, {passive:true});
+window.addEventListener("resize", updateMobileNavigationOffset);
+updateMobileNavigationOffset();
 const sidebarToggle=document.getElementById("sidebarToggle");
 function setSidebarCollapsed(collapsed) {
     layout.classList.toggle("sidebar-collapsed",Boolean(collapsed));
@@ -271,7 +280,12 @@ function refreshGlobalNav() {
     if (isAdmin()) { nav.append(navItem("Управление библиотекой", "/admin", "⚙"));
         nav.append(navItem("Редакционная проверка", "/reviews", "✓")); }
     otherResourcesNav.replaceChildren();
-    allPortals.filter(p => p.id !== "library").forEach(p => {
+    const otherPortals = allPortals.length ? allPortals.filter(p => p.id !== "library") : [
+        {name:"Правительство штата"}, {name:"Судебная система"},
+        {name:"Законодательный орган"}, {name:"Город Лос-Сантос"},
+        {name:"Секретарь штата"}
+    ];
+    otherPortals.forEach(p => {
         otherResourcesNav.append(el("div", "nav-static-resource", p.name));
     });
     document.querySelectorAll(".header-nav a[data-link]").forEach(link => {
