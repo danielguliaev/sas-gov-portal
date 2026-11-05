@@ -12,15 +12,16 @@ CREATE TABLE IF NOT EXISTS code_outline(
 CREATE INDEX IF NOT EXISTS ix_code_outline_order
  ON code_outline(code_id,parent_key,position,item_id);
 
--- Preserve the old display order at upgrade: structural levels precede root
--- articles. Editors can then move any article to any slot, including first.
+-- Put existing root-level introductory articles before the first division
+-- on upgrade; inside other levels retain sections-first legacy ordering.
+-- Every resulting position remains editable by the superadministrator.
 INSERT INTO code_outline(code_id,parent_key,kind,item_id,position)
 SELECT code_id,parent_key,kind,item_id,
        ROW_NUMBER() OVER(PARTITION BY code_id,parent_key
                          ORDER BY grouping, ordering, item_id) * 1000
 FROM (
  SELECT n.code_id,COALESCE(n.parent_id,'ROOT') AS parent_key,'node' AS kind,
-        n.id AS item_id,0 AS grouping,
+        n.id AS item_id,CASE WHEN n.parent_id IS NULL THEN 1 ELSE 0 END AS grouping,
         printf('%06d',t.level_order)||':'||t.id||':'||
         CASE WHEN sm.mode='manual'
              THEN '0'||printf('%012d',COALESCE(n.manual_order,999999))
@@ -32,7 +33,7 @@ FROM (
  WHERE n.status='active'
  UNION ALL
  SELECT a.code_id,COALESCE(a.parent_id,'ROOT'),'article',
-        a.id,1,a.sort_key
+        a.id,CASE WHEN a.parent_id IS NULL THEN 0 ELSE 1 END,a.sort_key
  FROM articles a WHERE a.status='active'
 );
 

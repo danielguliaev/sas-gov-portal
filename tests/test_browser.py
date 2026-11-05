@@ -64,7 +64,12 @@ def test_legislation_portal_desktop_and_mobile(tmp_path):
             expect(page.locator(".catalog-grid .law-code-card")).to_have_count(1)
             expect(page.locator(".catalog-summary")).to_contain_text("Найдено кодексов: 1")
             page.locator(".law-code-card").first.click()
+            # An empty root has no article heading or placeholder for readers.
             expect(page.locator(".section-tile")).to_have_count(1)
+            expect(page.locator(".section-heading")).to_have_count(0)
+            expect(page.locator(".eyebrow").first).to_have_text("PEN")
+            assert page.get_by_text("Структура документа").count()==0
+            assert page.get_by_text("Содержание кодекса",exact=True).count()==0
             page.locator(".section-tile").first.click()
             expect(page.locator(".article-card")).to_have_count(1)
             expect(page.locator(".article-card")).to_contain_text("Пример статьи")
