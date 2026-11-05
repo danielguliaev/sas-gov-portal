@@ -510,20 +510,19 @@ async function adminRelationsWorkbench(area){
                 (type.exclusive_target?" · Повторное назначение цели запрещено.":"") : "";
         }
         kind.onchange=describe;
-        const sourceFinder=await adminArticleFinder("Исходная статья","");
-        const targetFinder=await adminArticleFinder("Целевая статья","");
+        const sourceFinder=await adminArticleFinder("От какой статьи",new URLSearchParams(location.search).get("source")||"");
+        const targetFinder=await adminArticleFinder("К какой статье","");
         sourceFinder.wrap.classList.add("wb-finder");
         targetFinder.wrap.classList.add("wb-finder");
         form.form.prepend(adminField("Вид юридической связи",kind),hint,
-            el("h4","","1. От какой статьи"),sourceFinder.wrap,
-            el("h4","","2. К какой статье"),targetFinder.wrap);
+            sourceFinder.wrap,targetFinder.wrap);
         content.append(form.form);
         describe();
     }
     async function reviewScreen(){
         content.append(workbenchHeading("ДЕЙСТВУЮЩИЕ И АРХИВНЫЕ","Связи одной статьи",
             "Откройте существующие отношения, отключите ошибочное назначение или выберите совместимую архивную связь для восстановления."));
-        const articleFinder=await adminArticleFinder("Найти статью","");
+        const articleFinder=await adminArticleFinder("Какую статью посмотреть",new URLSearchParams(location.search).get("article")||"");
         const id=adminInput(new URLSearchParams(location.search).get("article")||"",
             "Постоянный ID статьи");
         id.id="relationReviewArticleId";
@@ -533,6 +532,7 @@ async function adminRelationsWorkbench(area){
             if(articleFinder.select.value)id.value=articleFinder.select.value;
         });
         row.append(fromSearch);
+        articleFinder.select.addEventListener("change",()=>{id.value=articleFinder.select.value; if(id.value)adminSafe(draw);});
         const load=wbInlineAction("Показать связи",draw,"primary");
         row.append(load);
         const result=el("div","wb-review-results");
