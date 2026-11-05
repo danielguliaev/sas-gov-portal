@@ -271,78 +271,104 @@ async function adminHierarchyWorkbench(area){
             "Перемещение не меняет постоянные ссылки на разделы и статьи."),button,operation);
         content.append(form);
     }
+
     function orderScreen(){
-        content.append(workbenchHeading("ПОСЛЕДОВАТЕЛЬНОСТЬ","Порядок разделов",
-            "Меняйте порядок стрелками или перетаскиванием. Это влияет только на одну выбранную группу, а не на номера статей."));
-        const groups=new Map();
-        nodes.forEach(n=>{
-            const key=(n.parent_id||"ROOT")+"|"+n.type_id;
-            if(!groups.has(key))groups.set(key,[]);
-            groups.get(key).push(n);
-        });
-        if(!groups.size){content.append(wbEmpty("Нет разделов для сортировки",
-            "Добавьте структурные элементы кодекса."));return;}
-        const choice=adminSelect([...groups].map(([key,children])=>{
-            const first=children[0];
-            const parent=nodesById.get(first.parent_id);
-            const type=typesById.get(first.type_id);
-            return [(parent?displayLegalTitle(parent.title):"Корень кодекса")+" / "+
-                (type?type.name:"Раздел")+" · "+children.length,key];
-        }));
+        content.append(workbenchHeading("ПОСЛЕДОВАТЕЛЬНОСТЬ","Порядок статей и разделов",
+            "В каждом уровне, включая корень кодекса, статьи и разделы располагаются в одной последовательности. Перемещение не меняет юридические номера или текст."));
+        const scopes=[["Корень кодекса","ROOT"],...nodes.map(n=>{
+            const type=typesById.get(n.type_id);
+            return [(type?type.name+" ":"")+(n.number?n.number+" · ":"")+
+                    displayLegalTitle(n.title),n.id];
+        })];
+        const choice=adminSelect(scopes);
         choice.id="hierarchySortGroup";
         const panel=el("div","wb-task");
         const entries=el("div","wb-sort-list");
-        panel.append(adminField("Группа для сортировки",choice),entries);
+        panel.append(adminField("Уровень для настройки порядка",choice),entries);
         content.append(panel);
-        let order=[];
+        let order=[],version=0;
         function repaint(){
             entries.replaceChildren();
-            order.forEach((n,i)=>{
-                const item=el("div","wb-sort-row");
-                item.draggable=true;
-                item.append(el("span","wb-sort-number",String(i+1)),
-                    el("span","wb-sort-name",n.number+" · "+displayLegalTitle(n.title)));
+            if(!order.length){
+                entries.append(wbEmpty("На этом уровне нет элементов",
+                    "Добавьте статью или раздел; после этого его можно будет перемещать."));
+                return;
+            }
+            order.forEach((item,i)=>{
+                const row=el("div","wb-sort-row");
+                row.draggable=true;
+                row.dataset.kind=item.kind;
+                row.dataset.itemId=item.id;
+                const label=item.kind==="article" ?
+                    "§ "+item.number+" · "+displayLegalTitle(item.title) :
+                    (item.type_name+" "+(item.number||"")+" · "+displayLegalTitle(item.title)).trim();
+                row.append(el("span","wb-sort-number",String(i+1)),
+                    el("span","wb-sort-name",label));
                 const up=adminButton("↑",()=>{
                     if(i>0){[order[i-1],order[i]]=[order[i],order[i-1]];repaint();}
                 });
-                up.setAttribute("aria-label","Поднять "+n.title);
+                up.setAttribute("aria-label","Поднять "+label);
+                up.disabled=i===0;
                 const down=adminButton("↓",()=>{
                     if(i<order.length-1){[order[i+1],order[i]]=[order[i],order[i+1]];repaint();}
                 });
-                down.setAttribute("aria-label","Опустить "+n.title);
-                item.append(up,down);
-                item.addEventListener("dragstart",evt=>{
-                    evt.dataTransfer.setData("text/plain",String(i));
-                    evt.dataTransfer.effectAllowed="move";
+                down.setAttribute("aria-label","Опустить "+label);
+                down.disabled=i===order.length-1;
+                row.append(up,down);
+                row.addEventListener("dragstart",event=>{
+                    event.dataTransfer.setData("text/plain",String(i));
+                    event.dataTransfer.effectAllowed="move";
                 });
-                item.addEventListener("dragover",evt=>evt.preventDefault());
-                item.addEventListener("drop",evt=>{
-                    evt.preventDefault();
-                    const from=Number(evt.dataTransfer.getData("text/plain"));
+                row.addEventListener("dragover",event=>event.preventDefault());
+                row.addEventListener("drop",event=>{
+                    event.preventDefault();
+                    const from=Number(event.dataTransfer.getData("text/plain"));
                     if(!Number.isInteger(from)||from<0||from>=order.length||from===i)return;
-                    const [moved]=order.splice(from,1);order.splice(i,0,moved);repaint();
+                    const [moved]=order.splice(from,1);
+                    order.splice(i,0,moved);
+                    repaint();
                 });
-                entries.append(item);
+                entries.append(row);
             });
         }
+        async function loadGroup(){
+            const myVersion=++version;
+            entries.replaceChildren(el("p","muted","Загрузка статей и разделов…"));
+            const parent=choice.value==="ROOT"?null:choice.value;
+            const all=[];
+            let cursor=null;
+            do{
+                const params=new URLSearchParams({limit:"200"});
+                if(parent)params.set("parent_id",parent);
+                if(cursor)params.set("cursor",cursor);
+                const response=await api("/codes/"+codeId+"/outline?"+params);
+                all.push(...response.items);
+                cursor=response.next_cursor;
+            }while(cursor);
+            if(version!==myVersion)return;
+            order=all;
+            repaint();
+        }
         const controls=el("div","wb-actions");
-        const save=wbInlineAction("Сохранить ручной порядок",async()=>{
-            const [parent,type]=choice.value.split("|");
-            await api("/nodes/order",{method:"POST",body:{
-                code_id:codeId,parent_id:parent==="ROOT"?null:parent,
-                type_id:type,mode:"manual",ordered_ids:order.map(n=>n.id)}});
-            notify("Порядок разделов сохранён.");
+        const save=wbInlineAction("Сохранить общий порядок",async()=>{
+            const parent=choice.value==="ROOT"?null:choice.value;
+            await api("/codes/"+codeId+"/outline",{method:"PUT",body:{
+                parent_id:parent,
+                items:order.map(item=>({kind:item.kind,id:item.id}))
+            }});
+            notify("Общий порядок статей и разделов сохранён.");
         },"primary");
-        const automatic=wbInlineAction("Вернуть порядок по номерам",async()=>{
-            if(!confirm("Вернуть сортировку по юридическим номерам для этой группы?"))return;
-            const [parent,type]=choice.value.split("|");
-            await api("/nodes/order",{method:"POST",body:{
-                code_id:codeId,parent_id:parent==="ROOT"?null:parent,
-                type_id:type,mode:"auto"}});
-            go("/admin/hierarchy?code="+codeId+"&view=order");
+        const automatic=wbInlineAction("Вернуть исходный порядок",async()=>{
+            if(!confirm("Расположить разделы по уровням и номерам, а затем статьи по номерам?"))return;
+            await api("/codes/"+codeId+"/outline/reset",{method:"POST",body:{
+                parent_id:choice.value==="ROOT"?null:choice.value
+            }});
+            await loadGroup();
+            notify("Исходный порядок восстановлен.");
         });
-        controls.append(save,automatic);panel.append(controls);
-        choice.onchange=()=>{order=[...(groups.get(choice.value)||[])];repaint();};
+        controls.append(save,automatic);
+        panel.append(controls);
+        choice.onchange=()=>loadGroup().catch(error=>notify(error.message));
         choice.onchange();
     }
     activate(chosen);
