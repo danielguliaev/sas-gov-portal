@@ -16,6 +16,8 @@ rem Use a dedicated virtual environment; an older broken .venv is not touched.
 set "ENV_DIR=%CD%\.venv-portal"
 set "ENV_PY=%ENV_DIR%\Scripts\python.exe"
 set "SITE_URL=http://127.0.0.1:8000/"
+rem Import bundled Penal Code Part I once into the local development library.
+set "AUTO_IMPORT_PENAL_PART_I=1"
 
 echo ===============================================
 echo     Правовая библиотека штата Сан Андреас
