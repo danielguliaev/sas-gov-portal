@@ -173,3 +173,56 @@ def test_exclusive_relation_rule_change_is_transactional(client, headers, admin)
     assert updated.status_code == 200,updated.text
     repeat = create_link(second)
     assert repeat.status_code == 409
+
+
+def test_unnumbered_root_sections_coexist_with_numbered_parts(client, headers, admin):
+    """Introductory pages and Part I are siblings, without synthetic numbering."""
+    auth = headers["superadmin"]
+    introductory = client.post(route("/codes/demo-penal/hierarchy-types"), json={
+        "name": "Вводный раздел", "level_order": 0, "number_format": "none",
+        "allowed_parents": ["ROOT"],
+    }, headers=auth)
+    assert introductory.status_code == 200, introductory.text
+    intro_type = introductory.json()["id"]
+
+    part_type = client.post(route("/codes/demo-penal/hierarchy-types"), json={
+        "name": "Часть", "level_order": 1, "number_format": "roman",
+        "allowed_parents": ["ROOT"],
+    }, headers=auth)
+    assert part_type.status_code == 200, part_type.text
+
+    intro_ids = []
+    for title in ("Название кодекса", "Предварительные положения"):
+        created = client.post(route("/codes/demo-penal/nodes"), json={
+            "type_id": intro_type, "parent_id": None, "title": title, "number": "",
+        }, headers=auth)
+        assert created.status_code == 200, created.text
+        intro_ids.append(created.json()["id"])
+
+    part = client.post(route("/codes/demo-penal/nodes"), json={
+        "type_id": part_type.json()["id"], "parent_id": None,
+        "title": "О преступлениях и наказаниях", "number": "I",
+    }, headers=auth)
+    assert part.status_code == 200, part.text
+
+    index = client.get(route("/codes/demo-penal/structure-index"),
+                       headers=headers["user"]).json()["items"]
+    relevant = [n for n in index if n["id"] in set(intro_ids + [part.json()["id"]])]
+    assert [n["title"] for n in relevant] == [
+        "Название кодекса", "Предварительные положения", "О преступлениях и наказаниях"]
+    assert [n["number"] for n in relevant] == ["", "", "I"]
+
+    # Renaming retains the ID and does not make an implicit number appear.
+    renamed = client.patch(route("/nodes/" + intro_ids[0]), json={
+        "title": "Название Penal Code"}, headers=auth)
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()["number"] == ""
+
+    # Legal articles can be attached to unnumbered sections.
+    article = admin("850", parent=intro_ids[1])
+    assert article["parent_id"] == intro_ids[1]
+
+    numbered = client.post(route("/codes/demo-penal/nodes"), json={
+        "type_id": intro_type, "title": "Недопустимый номер", "number": "0",
+    }, headers=auth)
+    assert numbered.status_code == 422
