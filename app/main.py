@@ -14,7 +14,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from app.core import APP_ENV, error_handler, init_database, seed_demo, purge_old_audit_events, actor, require, read_db, transaction, uid, dumps, ts
-from app import legal, editor, portals, hierarchy, integration, auth, acts
+from app import legal, editor, portals, hierarchy, integration, auth, acts, outline
 
 
 async def _audit_retention_worker():
@@ -163,6 +163,7 @@ async def invalid_request(_request, exc):
 
 
 app.include_router(legal.router, prefix="/api/v1")
+app.include_router(outline.router, prefix="/api/v1")
 app.include_router(editor.router, prefix="/api/v1")
 app.include_router(hierarchy.router, prefix="/api/v1")
 app.include_router(portals.router, prefix="/api/v1")

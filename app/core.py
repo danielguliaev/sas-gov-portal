@@ -463,6 +463,28 @@ def init_database():
             except Exception:
                 c.rollback()
                 raise
+        if not c.execute("SELECT 1 FROM schema_migrations WHERE version=6").fetchone():
+            c.execute("BEGIN IMMEDIATE")
+            try:
+                # sqlite3.complete_statement handles multi-statement triggers,
+                # unlike splitting the SQL file at every semicolon.
+                pending = []
+                for line in (base / "006_code_outline.sql").read_text(
+                        encoding="utf-8").splitlines():
+                    if line.lstrip().startswith("--"):
+                        continue
+                    pending.append(line)
+                    statement = "\n".join(pending).strip()
+                    if sqlite3.complete_statement(statement):
+                        c.execute(statement)
+                        pending = []
+                if "\n".join(pending).strip():
+                    raise ValueError("Незавершённая миграция 006")
+                c.execute("INSERT INTO schema_migrations(version) VALUES(6)")
+                c.commit()
+            except Exception:
+                c.rollback()
+                raise
         c.commit()
     finally:
         c.close()

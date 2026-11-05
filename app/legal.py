@@ -11,6 +11,9 @@ from app.core import (
     read_db, require, uid, ts, transaction, present_article, CATEGORIES
 )
 
+from app.outline import encode_cursor, outline_rows
+
+
 router = APIRouter()
 
 
@@ -81,13 +84,11 @@ def code_tree(code_id: str, include_nodes: bool = True, current=Depends(actor)):
                         (code_id,))
         nodes = (allrows(c, "SELECT * FROM structure_nodes WHERE code_id=? AND status='active'",
                          (code_id,)) if include_nodes else [])
-        by_type = {t["id"]: t for t in types}
-        modes = {r["parent_key"]: r["mode"] for r in allrows(c, "SELECT * FROM sort_modes")}
+        positions = {r["item_id"]: r["position"] for r in allrows(c,
+            "SELECT item_id,position FROM code_outline WHERE code_id=? AND kind='node'",
+            (code_id,))}
         def sort_node(n):
-            mode = modes.get(code_id + ":" + n["parent_key"] + ":" + n["type_id"], "auto")
-            sort_part = (0, n["manual_order"] if n["manual_order"] is not None else 999999) if mode == "manual" else (1, n["sort_key"])
-            return (n["parent_key"], by_type.get(n["type_id"], {}).get("level_order", 999),
-                    n["type_id"], sort_part, n["id"])
+            return (n["parent_key"], positions.get(n["id"], 999999999), n["id"])
         nodes.sort(key=sort_node)
         return {"code": code, "types": types, "nodes": nodes}
 
@@ -277,53 +278,54 @@ def article_position(article_id: str, current=Depends(actor)):
             scope = a["code_id"] + ":" + (a["parent_id"] or "ROOT")
             payload = {"sort": predecessor["sort_key"], "id": predecessor["id"], "scope": scope}
             start_cursor = base64.urlsafe_b64encode(dumps(payload).encode()).decode().rstrip("=")
+        # The mixed reader needs an independent cursor: one page may contain
+        # articles and structural levels in any order.
+        placement = one(c, """SELECT position FROM code_outline
+                               WHERE kind='article' AND item_id=?""", (article_id,))
+        preceding = c.execute("""SELECT COUNT(*) FROM code_outline
+              WHERE code_id=? AND parent_key=? AND position<?""",
+              (a["code_id"], a["parent_id"] or "ROOT", placement["position"])).fetchone()[0]
+        outline_start = preceding - preceding % 12
+        outline_cursor = None
+        if outline_start:
+            preceding_item = one(c, """SELECT position,item_id FROM code_outline
+                      WHERE code_id=? AND parent_key=?
+                      ORDER BY position,kind,item_id LIMIT 1 OFFSET ?""",
+                      (a["code_id"], a["parent_id"] or "ROOT", outline_start-1))
+            outline_cursor = encode_cursor(a["code_id"], a["parent_id"],
+                                           preceding_item["position"], preceding_item["item_id"])
         return {"code_id": a["code_id"], "parent_id": a["parent_id"],
-                "index": before, "cursor_before": start_cursor}
+                "index": before, "cursor_before": start_cursor,
+                "outline_index": preceding, "outline_cursor_before": outline_cursor}
 
 
 @router.get("/articles/{article_id}/adjacent")
 def adjacent_articles(article_id: str, current=Depends(actor)):
-    """Depth-first legal navigation: structural children precede sibling articles."""
+    """Navigate active articles in the same nested order shown to readers."""
     with read_db() as c:
-        a = one(c, "SELECT id,code_id FROM articles WHERE id=? AND status='active'", (article_id,))
-        row = one(c, """WITH RECURSIVE
-            paths(id,path) AS (
-                SELECT n.id,
-                       'A' || printf('%06d',t.level_order) || ':' ||
-                       CASE WHEN m.mode='manual' THEN '0' || printf('%012d',COALESCE(n.manual_order,999999))
-                            ELSE '1' || n.sort_key END || ':' || n.id
-                FROM structure_nodes n JOIN hierarchy_types t ON t.id=n.type_id
-                LEFT JOIN sort_modes m ON m.parent_key=n.code_id || ':' || n.parent_key || ':' || n.type_id
-                WHERE n.code_id=? AND n.status='active' AND n.parent_id IS NULL
-                UNION ALL
-                SELECT n.id, p.path || '/' ||
-                       'A' || printf('%06d',t.level_order) || ':' ||
-                       CASE WHEN m.mode='manual' THEN '0' || printf('%012d',COALESCE(n.manual_order,999999))
-                            ELSE '1' || n.sort_key END || ':' || n.id
-                FROM structure_nodes n JOIN paths p ON p.id=n.parent_id
-                JOIN hierarchy_types t ON t.id=n.type_id
-                LEFT JOIN sort_modes m ON m.parent_key=n.code_id || ':' || n.parent_key || ':' || n.type_id
-                WHERE n.code_id=? AND n.status='active'
-            ),
-            reading_order AS (
-                SELECT a.id,
-                       COALESCE(p.path || '/', '') || 'Z' || a.sort_key || ':' || a.id AS position
-                FROM articles a LEFT JOIN paths p ON p.id=a.parent_id
-                WHERE a.code_id=? AND a.status='active'
-            ),
-            neighbors AS (
-                SELECT id,
-                       LAG(id) OVER(ORDER BY position) AS previous_id,
-                       LEAD(id) OVER(ORDER BY position) AS next_id
-                FROM reading_order
-            )
-            SELECT previous_id,next_id FROM neighbors WHERE id=?""",
-            (a["code_id"],a["code_id"],a["code_id"],article_id))
+        a = one(c, "SELECT id,code_id FROM articles WHERE id=? AND status='active'",
+                (article_id,))
+        ordered = []
+        visited = set()
+        def walk(parent_id, depth=0):
+            if depth > 100:
+                fail(409, "INVALID_HIERARCHY", "Обнаружена слишком глубокая структура.")
+            for item in outline_rows(c, a["code_id"], parent_id):
+                if item["kind"] == "article":
+                    ordered.append(item["id"])
+                elif item["id"] not in visited:
+                    visited.add(item["id"])
+                    walk(item["id"], depth + 1)
+        walk(None)
+        location = ordered.index(article_id)
+        previous_id = ordered[location-1] if location else None
+        next_id = ordered[location+1] if location+1 < len(ordered) else None
         previous = maybe(c, "SELECT id,number,title FROM articles WHERE id=?",
-                         (row["previous_id"],)) if row["previous_id"] else None
+                         (previous_id,)) if previous_id else None
         following = maybe(c, "SELECT id,number,title FROM articles WHERE id=?",
-                          (row["next_id"],)) if row["next_id"] else None
+                          (next_id,)) if next_id else None
         return {"previous": previous, "next": following}
+
 
 @router.get("/articles/{article_id}/revisions")
 def revisions(article_id: str, current=Depends(actor)):

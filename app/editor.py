@@ -12,6 +12,9 @@ from app.core import (
     validate_article, validate_parent, validate_relations, notify
 )
 
+from app.outline import place_outline_item, sync_node_group
+
+
 router = APIRouter()
 
 
@@ -68,6 +71,8 @@ def _add_article(c, code_id, body, current):
        dumps(categories), criminal_class, dumps(custom),
        sanctions["prison_min_months"], sanctions["prison_max_months"],
        sanctions["fine_min_usd"], sanctions["fine_max_usd"], now, now))
+    if "insert_at" in body:
+        place_outline_item(c, code_id, parent_id, "article", article_id, body["insert_at"])
     revision_id = append_revision(c, article_id, current["id"], body.get("reason", "Создание статьи"))
     audit(c, current, "article.create", "article", article_id, {}, {"revision_id": revision_id})
     return article_id
@@ -96,6 +101,7 @@ def create_code(body: dict, current=Depends(actor)):
     _admin(current)
     name = plain(body.get("name"), 200).strip()
     abbreviation = plain(body.get("abbreviation", ""), 40).strip()
+    description = plain(body.get("description", ""), 3000)
     jurisdiction_id = body.get("jurisdiction_id")
     template = body.get("hierarchy_template", "empty")
     issuer, reference, published = _code_publication_metadata(body)
@@ -110,9 +116,10 @@ def create_code(body: dict, current=Depends(actor)):
             fail(409, "DUPLICATE_CODE", "В этой юрисдикции кодекс с таким названием уже существует.")
         code_id = uid()
         c.execute("""INSERT INTO codes(id,jurisdiction_id,name,abbreviation,is_demo,
-                     publication_issuer,publication_reference,published_at)
-                     VALUES(?,?,?,?,0,?,?,?)""",
-                  (code_id, jurisdiction_id, name, abbreviation, issuer, reference, published))
+                     publication_issuer,publication_reference,published_at,description)
+                     VALUES(?,?,?,?,0,?,?,?,?)""",
+                  (code_id, jurisdiction_id, name, abbreviation, issuer, reference, published,
+                   description))
         initial_types = []
         if template == "standard":
             # Hierarchy types are editable per code; a code can also begin empty.
@@ -135,7 +142,7 @@ def create_code(body: dict, current=Depends(actor)):
               {"jurisdiction_id": jurisdiction_id, "name": name, "abbreviation": abbreviation,
                "hierarchy_template": template, "created_type_ids": [t["id"] for t in initial_types],
                "publication_issuer": issuer, "publication_reference": reference,
-               "published_at": published})
+               "published_at": published, "description": description})
     return {"id": code_id, "name": name, "hierarchy_template": template,
             "type_count": len(initial_types)}
 
@@ -150,6 +157,7 @@ def update_code_metadata(code_id: str, body: dict, current=Depends(actor)):
         old = one(c, "SELECT * FROM codes WHERE id=? AND status='active'", (code_id,))
         name = plain(body.get("name", old["name"]), 200)
         abbreviation = plain(body.get("abbreviation", old["abbreviation"]), 40)
+        description = plain(body.get("description", old["description"]), 3000)
         if not name:
             fail(422, "INVALID_CODE_NAME", "Название кодекса не может быть пустым.")
         others = allrows(c, "SELECT name FROM codes WHERE jurisdiction_id=? AND id<>?",
@@ -158,14 +166,15 @@ def update_code_metadata(code_id: str, body: dict, current=Depends(actor)):
             fail(409, "DUPLICATE_CODE", "В этой юрисдикции кодекс с таким названием уже существует.")
         issuer, reference, published = _code_publication_metadata(body, old)
         c.execute("""UPDATE codes SET name=?,abbreviation=?,publication_issuer=?,
-                     publication_reference=?,published_at=? WHERE id=?""",
-                  (name, abbreviation, issuer, reference, published, code_id))
+                     publication_reference=?,published_at=?,description=? WHERE id=?""",
+                  (name, abbreviation, issuer, reference, published, description, code_id))
         audit(c, current, "code.metadata.update", "code", code_id, old,
               {"name": name, "abbreviation": abbreviation, "publication_issuer": issuer,
-               "publication_reference": reference, "published_at": published})
+               "publication_reference": reference, "published_at": published,
+               "description": description})
         return {"id": code_id, "name": name, "abbreviation": abbreviation,
                 "publication_issuer": issuer, "publication_reference": reference,
-                "published_at": published}
+                "published_at": published, "description": description}
 
 
 @router.post("/codes/{code_id}/hierarchy-types")
@@ -368,6 +377,8 @@ def reorder_nodes(body: dict, current=Depends(actor)):
         for i, node_id in enumerate(ordered if mode == "manual" else ids):
             c.execute("UPDATE structure_nodes SET manual_order=? WHERE id=?",
                       (i if mode == "manual" else None, node_id))
+        sync_node_group(c, code_id, parent_id, type_id,
+                        ordered if mode == "manual" else ids)
         audit(c, current, "nodes.reorder", "code", code_id, {}, {"mode": mode, "ids": ordered})
     return {"mode": mode}
 
