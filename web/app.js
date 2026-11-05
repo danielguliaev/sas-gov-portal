@@ -621,7 +621,7 @@ function renderCodeNav(code, selectedNode, directTarget) {
         const selected=node.id===selectedNode;
         const type=treeData.types.find(t=>t.id===node.type_id);
         const caption=(type?type.name+" ":node.type_name?node.type_name+" ":"")+
-            node.number+" · "+displayLegalTitle(node.title);
+            (node.number?node.number+" · ":"")+displayLegalTitle(node.title);
         const link=el("a","nav-item",caption);
         link.href="/codes/"+code.id+"/nodes/"+node.id;
         link.dataset.link="";link.dataset.nodeId=node.id;
@@ -1006,8 +1006,18 @@ async function openStructureDialog(mode, codeId, parentId = null) {
                 document.getElementById("structureStatus").textContent = "";
             }
         }
-        typeSelect.onchange = updateParents;
+        const numberInput=structureForm.elements.number;
+        function updateNumberField(){
+            const chosen=types.find(t=>t.id===typeSelect.value);
+            const unnumbered=chosen?.number_format==="none";
+            numberInput.required=!unnumbered;
+            numberInput.disabled=unnumbered;
+            if(unnumbered)numberInput.value="";
+            numberInput.closest("label").hidden=unnumbered;
+        }
+        typeSelect.onchange=()=>{updateParents();updateNumberField();};
         typeSelect.disabled = mode === "edit";
+        updateNumberField();
         updateParents();
         if (mode === "edit") {
             structureForm.elements.number.value = parent.number;
@@ -1050,7 +1060,7 @@ structureForm.addEventListener("submit", async event => {
         } else if (state.mode === "edit") {
             const number = fields.number.value.trim();
             const title = fields.title.value.trim();
-            if (!number || !title) throw Error("Номер и название обязательны.");
+            if ((!fields.number.disabled && !number) || !title) throw Error("Заполните название и необходимый номер.");
             await api("/nodes/" + state.parentId, {
                 method:"PATCH",body:{number,title}
             });
@@ -1101,14 +1111,14 @@ async function openSection(codeId, nodeId, targetId, options, serial) {
             cursor = cursor.parent_id && treeData.nodes.find(n => n.id === cursor.parent_id);
         }
         ancestors.forEach((n,index) => trail.push({
-            label: n.number + " · " + displayLegalTitle(n.title),
+            label: (n.number?n.number+" · ":"") + displayLegalTitle(n.title),
             href: index < ancestors.length - 1 ? "/codes/" + codeId + "/nodes/" + n.id : null
         }));
     } else {
         trail[trail.length - 1].href = null;
     }
     main.append(breadcrumb(trail));
-    const title = selected ? selected.number + " · " + displayLegalTitle(selected.title) : code.name;
+    const title = selected ? (selected.number?selected.number+" · ":"")+displayLegalTitle(selected.title) : code.name;
     pageHeading(code.abbreviation ? "Кодекс " + code.abbreviation : "Законодательный кодекс",
                 title, selected ? "Структурный раздел кодекса «" + code.name + "»." :
                 "Содержание кодекса. Выберите раздел для изучения норм права.");
@@ -1138,6 +1148,34 @@ async function openSection(codeId, nodeId, targetId, options, serial) {
         addType.type = "button";
         addType.onclick = () => openStructureDialog("type", codeId);
         toolbar.append(addNode, addType);
+        if(!nodeId){
+            const intro=el("button","button ghost","＋ Вводный раздел");
+            intro.type="button";
+            intro.title="Ненумерованный раздел непосредственно в корне кодекса";
+            intro.onclick=async()=>{
+                const title=prompt("Название вводного раздела (например, Предварительные положения):");
+                if(title===null)return;
+                if(!title.trim())return notify("Введите название раздела.");
+                intro.disabled=true;
+                try{
+                    const tree=await api("/codes/"+codeId+"/tree?include_nodes=false");
+                    let type=tree.types.find(t=>t.name==="Вводный раздел" && t.number_format==="none" &&
+                        allowedParentTypes(t).includes("ROOT"));
+                    if(!type){
+                        const created=await api("/codes/"+codeId+"/hierarchy-types",{method:"POST",body:{
+                            name:"Вводный раздел",number_format:"none",level_order:0,
+                            allowed_parents:["ROOT"]}});
+                        type={id:created.id};
+                    }
+                    const node=await api("/codes/"+codeId+"/nodes",{method:"POST",body:{
+                        type_id:type.id,parent_id:null,number:"",title:title.trim()}});
+                    notify("Вводный раздел создан в корне кодекса.");
+                    go("/codes/"+codeId+"/nodes/"+node.id);
+                }catch(error){notify(error.message);}
+                finally{intro.disabled=false;}
+            };
+            toolbar.append(intro);
+        }
         const hierarchy=el("a","button ghost","Настроить иерархию");
         hierarchy.href="/admin/hierarchy?code="+encodeURIComponent(codeId);hierarchy.dataset.link="";
         toolbar.append(hierarchy);
@@ -1173,8 +1211,8 @@ async function openSection(codeId, nodeId, targetId, options, serial) {
             const title=el("span","section-tile-text");
             title.append(el("strong","",displayLegalTitle(node.title)),
                 el("small","",type?type.name:node.type_name||"Раздел кодекса"));
-            a.append(el("span","section-tile-number",node.number),
-                title,el("span","section-tile-arrow","↗"));
+            if(node.number)a.append(el("span","section-tile-number",node.number));
+            a.append(title,el("span","section-tile-arrow","↗"));
             return a;
         };
         subnodes.forEach(node=>sectionGrid.append(renderSubnode(node)));
