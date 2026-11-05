@@ -708,7 +708,8 @@ function createArticleCard(a) {
         p.append(link, " · " + friendlyDate(a.provenance.published_at));
         card.append(p);
     }
-    const extra = isLawyer() && a.categories && a.categories.length;
+    const extra = isLawyer();
+    let legalDetails = null;
     if (extra) {
         const details = el("details", "detail-block");
         details.append(el("summary", "", "Дополнительные юридические сведения"));
@@ -722,6 +723,7 @@ function createArticleCard(a) {
         fields.forEach(pair => dl.append(el("dt", "", pair[0]),el("dd", "", pair[1])));
         details.append(dl);
         card.append(details);
+        legalDetails = details;
     }
     const relationBox = el("div", "small");
     api("/articles/" + a.id + "/relations").then(related => {
@@ -740,16 +742,22 @@ function createArticleCard(a) {
         }
     }).catch(() => {});
     card.append(relationBox);
-    if(isLawyer())attachArticleAnnotations(card,a,textBlock);
+    if(isLawyer())attachArticleAnnotations(card,a,textBlock,legalDetails);
     const actions = el("div", "article-actions");
-    const open = el("a", "button ghost", "Постоянная ссылка");
-    open.href = "/articles/" + a.id; open.dataset.link = "";
+    const open = el("button", "button ghost", "Постоянная ссылка");
+    open.type = "button";
+    open.onclick = () => navigator.clipboard.writeText(location.origin + "/articles/" + a.id)
+        .then(() => notify("Постоянная ссылка скопирована."))
+        .catch(() => notify("Не удалось скопировать ссылку."));
     actions.append(open);
     const copy = el("button", "button subtle", "Копировать цитату");
+    copy.type = "button";
     copy.onclick = () => {
-        navigator.clipboard.writeText("Статья " + a.number + " «" + displayLegalTitle(a.title) + "». " +
-            location.origin + "/articles/" + a.id).then(() => notify("Юридическая ссылка скопирована."))
-            .catch(() => notify("Не удалось скопировать ссылку."));
+        const codeName = allCodes.find(code => code.id === a.code_id)?.name || "Кодекс";
+        const path = [codeName, "Статья " + a.number + ". " + displayLegalTitle(a.title)].join(" → ");
+        navigator.clipboard.writeText(path + "\n\n" + (textBlock.innerText || textBlock.textContent || "").trim())
+            .then(() => notify("Название и текст статьи скопированы."))
+            .catch(() => notify("Не удалось скопировать цитату."));
     };
     actions.append(copy);
     if (isLawyer()) {
@@ -785,7 +793,10 @@ function createArticleCard(a) {
         const relationAdmin=el("a","button ghost","Управление связями");
         relationAdmin.href="/admin/relations?article="+encodeURIComponent(a.id);relationAdmin.dataset.link="";
         actions.append(relationAdmin);
-        const archiveAdmin=el("a","button ghost","В архив");
+        const archiveAdmin=el("a","button ghost article-archive-action","♲");
+        archiveAdmin.textContent="🗑";
+        archiveAdmin.title="Архивировать статью";
+        archiveAdmin.setAttribute("aria-label","Архивировать статью");
         archiveAdmin.href="/admin/archive?article="+encodeURIComponent(a.id);archiveAdmin.dataset.link="";
         actions.append(archiveAdmin);
     }
