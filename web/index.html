@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#142c47">
+  <meta name="description" content="Правовая библиотека штата Сан Андреас — собрание законов и правовых актов">
+  <title>Правовая библиотека штата Сан Андреас</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/laws.css">
+  <link rel="stylesheet" href="/static/admin.css">
+  <link rel="stylesheet" href="/static/admin-workbench.css">
+  <script defer src="/static/app.js"></script>
+  <script defer src="/static/admin.js"></script>
+  <script defer src="/static/admin-workbench.js"></script>
+  <script defer src="/static/search.js"></script>
+  <script defer src="/static/notes.js"></script>
+  <script defer src="/static/acts.js"></script>
+</head>
+<body>
+  <a href="#main" class="skip-link">Перейти к содержимому</a>
+  <div class="gov-strip">САН-АНДРЕАС · ГОСУДАРСТВЕННЫЕ ЭЛЕКТРОННЫЕ РЕСУРСЫ</div>
+  <header class="site-header">
+    <div class="header-inner">
+      <button id="menuToggle" class="icon-button menu-toggle" type="button" aria-label="Открыть навигацию" aria-expanded="false" aria-controls="sidebar">☰</button>
+      <a class="brand" href="/" data-link>
+<span class="brand-text"><strong>Правовая библиотека</strong><small>штата Сан Андреас</small></span>
+      </a>
+      <nav class="header-nav" aria-label="Навигация по ресурсам">
+        <details class="header-dropdown" id="legalResourcesMenu">
+          <summary>Правовые ресурсы</summary>
+          <div class="header-dropdown-panel" id="globalNav" aria-label="Правовые ресурсы"></div>
+        </details>
+        <details class="header-dropdown" id="otherResourcesMenu">
+          <summary>Прочие ресурсы</summary>
+          <div class="header-dropdown-panel" id="otherResourcesNav" aria-label="Прочие государственные ресурсы"></div>
+        </details>
+      </nav>
+      <div class="header-actions">
+        <label class="header-label" for="roleSelect">Роль пользователя</label>
+        <select id="roleSelect" aria-label="Роль пользователя">
+          <option value="">Выбрать роль</option>
+          <option value="user">Читатель</option>
+          <option value="lawyer">Юрист</option>
+          <option value="superadmin">Суперадминистратор</option>
+        </select>
+        <button id="notifyButton" class="icon-button" aria-label="Уведомления" title="Уведомления">♧</button>
+      </div>
+    </div>
+  </header>
+  <div class="layout" id="layout">
+    <aside class="sidebar" id="sidebar" aria-label="Навигация по законодательству">
+      <div class="sidebar-header">
+        <div class="sidebar-heading">СОДЕРЖАНИЕ КОДЕКСА</div>
+        <button id="sidebarToggle" class="sidebar-toggle" type="button"
+                aria-label="Свернуть боковую панель" aria-controls="codeNav"
+                aria-expanded="true" title="Свернуть боковую панель">❮</button>
+      </div>
+      <div id="codeNav" role="navigation" aria-label="Содержание открытого кодекса"></div>
+      <div class="sidebar-bottom">
+        <label for="fontScale">Размер шрифта чтения</label>
+        <input id="fontScale" type="range" min="75" max="175" step="5" value="100">
+        <output id="fontOutput" for="fontScale">100%</output>
+      </div>
+    </aside>
+    <button type="button" id="navBackdrop" class="nav-backdrop" aria-label="Закрыть меню" tabindex="-1"></button>
+    <main id="main" class="main" tabindex="-1" aria-live="polite">
+      <section class="loading-page">Загрузка правовых ресурсов…</section>
+    </main>
+  </div>
+  <footer class="site-footer">
+    <div class="footer-identity"><span>Правовая библиотека штата Сан Андреас</span><span>Copyright © 2026 State of San Andreas</span></div>
+    <div class="footer-links"><a href="/laws" data-link>Реестр законов</a><a href="/search" data-link>Поиск статей</a></div>
+  </footer>
+  <dialog id="structureDialog" aria-labelledby="structureTitle">
+    <div class="dialog-header">
+      <h2 id="structureTitle">Структура кодекса</h2>
+      <button id="closeStructure" class="icon-button" type="button" aria-label="Закрыть редактор структуры">×</button>
+    </div>
+    <form id="structureForm" novalidate>
+      <div id="structureNodeFields" class="structure-field-group">
+        <label>Тип элемента
+          <select name="type_id" id="structureTypeSelect" required></select>
+        </label>
+        <label>Родительский элемент
+          <select name="parent_id" id="structureParentSelect"></select>
+        </label>
+        <div class="form-grid">
+          <label>Юридический номер<input name="number" maxlength="100" required placeholder="I, 1, A…"></label>
+          <label>Название<input name="title" maxlength="250" required placeholder="Название части или раздела"></label>
+        </div>
+      </div>
+      <div id="structureTypeFields" class="structure-field-group" hidden>
+        <label>Название типа<input name="type_name" maxlength="100" placeholder="Часть, раздел, глава…"></label>
+        <div class="form-grid">
+          <label>Порядок уровня<input name="level_order" type="number" step="1" value="1"></label>
+          <label>Формат номера
+            <select name="number_format">
+              <option value="mixed">Смешанный</option>
+              <option value="numeric">Цифровой</option>
+              <option value="roman">Римский</option>
+              <option value="alpha">Буквенный</option>
+              <option value="none">Без номера (вводный раздел)</option>
+            </select>
+          </label>
+        </div>
+        <fieldset>
+          <legend>Допустимые родительские типы</legend>
+          <div id="structureAllowedParents" class="checks"></div>
+        </fieldset>
+      </div>
+      <p id="structureStatus" class="form-status" role="status"></p>
+      <div class="dialog-footer">
+        <button type="button" class="button ghost" id="cancelStructure">Отмена</button>
+        <button type="submit" class="button primary" id="saveStructure">Сохранить</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="editorDialog" aria-labelledby="editorTitle">
+    <div class="dialog-header"><h2 id="editorTitle">Редактор статьи</h2><button id="closeEditor" class="icon-button" type="button" aria-label="Закрыть редактор">×</button></div>
+    <form id="articleForm" novalidate>
+      <div class="form-grid">
+        <label>Юридический номер<input name="number" required maxlength="100"></label>
+        <label>Заголовок<input name="title" required maxlength="300"></label>
+      </div>
+      <label>Расположение статьи в кодексе
+        <select name="parent_id" id="articleParentSelect" aria-label="Структурный раздел или корень кодекса">
+          <option value="">Непосредственно в кодексе (без раздела)</option>
+        </select>
+      </label>
+      <label id="articleInsertPlacementLabel">Положение новой статьи внутри выбранного уровня
+        <select name="insert_at" aria-label="Положение новой статьи">
+          <option value="">В конце (затем можно изменить порядок в управлении иерархией)</option>
+          <option value="0">В самом начале, перед всеми статьями и разделами</option>
+        </select>
+      </label>
+      <div class="editor-mode">
+        <button type="button" class="button ghost" id="toggleRichEditor">Визуальный редактор</button>
+        <span id="editorModeStatus">Режим исходной разметки HTML</span>
+      </div>
+      <label id="rawTextLabel">Текст статьи (HTML)<textarea name="text_rich" rows="12"></textarea></label>
+      <div id="visualEditorRegion" hidden>
+        <div class="rich-editor-toolbar" aria-label="Форматирование текста">
+          <button type="button" data-format="bold" aria-label="Полужирный">Ж</button>
+          <button type="button" data-format="italic" aria-label="Курсив">К</button>
+          <button type="button" data-format="underline" aria-label="Подчёркнутый">Ч</button>
+          <button type="button" data-format="insertUnorderedList" aria-label="Маркированный список">• Список</button>
+          <button type="button" data-format="insertOrderedList" aria-label="Нумерованный список">1. Список</button>
+          <button type="button" data-format="formatBlock" data-value="h3" aria-label="Подзаголовок">Заголовок</button>
+          <button type="button" data-format="formatBlock" data-value="p" aria-label="Абзац">Абзац</button>
+        </div>
+        <div id="richEditor" class="rich-editor" contenteditable="true" role="textbox" aria-label="Визуальное редактирование текста статьи" aria-multiline="true"></div>
+        <p class="small muted">Можно вставлять форматированный текст. Разрешённая разметка проверяется сервером.</p>
+      </div>
+      <fieldset><legend>Юридические категории</legend><div id="editorCategories" class="checks"></div></fieldset>
+      <fieldset id="customFieldset"><legend>Дополнительные поля категорий</legend><div id="editorCustomFields" class="custom-field-grid"></div></fieldset>
+      <label>Класс обвинения<select name="criminal_class"><option value="">Не указано</option><option value="felony">Тяжкое преступление</option><option value="misdemeanor">Проступок</option><option value="infraction">Нарушение</option></select></label>
+      <fieldset><legend>Санкции (null — не указано; 0 — установленный ноль)</legend>
+        <div class="form-grid">
+          <label>Лишение свободы: от, мес.<input type="number" min="0" step="1" name="prison_min_months" placeholder="Не указано"></label>
+          <label>Лишение свободы: до, мес.<input type="number" min="0" step="1" name="prison_max_months" placeholder="Не указано"></label>
+          <label>Штраф: от, USD<input type="number" min="0" step="1" name="fine_min_usd" placeholder="Не указано"></label>
+          <label>Штраф: до, USD<input type="number" min="0" step="1" name="fine_max_usd" placeholder="Не указано"></label>
+        </div>
+      </fieldset>
+      <label>Основание изменения<input name="reason" maxlength="1000" placeholder="Внутренняя редакционная правка"></label>
+      <div class="dialog-footer"><span id="editorStatus" role="status"></span>
+        <button type="button" class="button ghost" id="reacquireLock" hidden>Получить блокировку заново</button>
+        <button type="submit" class="button primary" id="saveEditor">Сохранить редакцию</button>
+      </div>
+    </form>
+  </dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

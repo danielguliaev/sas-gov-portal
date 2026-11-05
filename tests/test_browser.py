@@ -1,0 +1,302 @@
+"""Real-browser smoke test of the public-facing law reader (opt in with RUN_BROWSER_TESTS=1)."""
+import os
+import socket
+import subprocess
+import sys
+import time
+from pathlib import Path
+from urllib.request import urlopen
+
+import pytest
+
+
+@pytest.mark.skipif(os.getenv("RUN_BROWSER_TESTS") != "1",
+                    reason="Browser tests require RUN_BROWSER_TESTS=1 and installed Chromium")
+def test_legislation_portal_desktop_and_mobile(tmp_path):
+    from playwright.sync_api import expect, sync_playwright
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    base_url = "http://127.0.0.1:" + str(port)
+    env = os.environ.copy()
+    env["DATABASE_PATH"] = str(tmp_path / "browser.db")
+    env["APP_ENV"] = "development"
+    env["AUTH_MODE"] = "demo"
+
+    server = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1",
+         "--port", str(port), "--log-level", "error"],
+        env=env, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
+    )
+    try:
+        for attempt in range(80):
+            try:
+                with urlopen(base_url + "/health", timeout=1) as response:
+                    if response.status == 200:
+                        break
+            except Exception:
+                time.sleep(.1)
+        else:
+            raise AssertionError("Web server failed to start for browser test")
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width":1440, "height":900}, device_scale_factor=1)
+            errors = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(base_url + "/", wait_until="domcontentloaded")
+            expect(page.locator(".law-hero h1")).to_contain_text("Правовая библиотека штата Сан Андреас")
+            expect(page.locator(".hero-guest")).to_be_visible()
+
+            # The test role is explicitly chosen in the local environment.
+            page.locator("#roleSelect").select_option("user")
+            expect(page.locator(".portal-metric strong").first).to_have_text("1", timeout=15000)
+            expect(page.locator(".jurisdiction-card")).to_have_count(3)
+            captures = Path("test-results")
+            captures.mkdir(exist_ok=True)
+            page.screenshot(path=str(captures / "law-portal-desktop.png"), full_page=True)
+
+            page.locator("#legalResourcesMenu summary").click()
+            expect(page.locator("#globalNav a[href='/laws']")).to_be_visible()
+            page.locator("#globalNav a[href='/laws']").click()
+            expect(page.locator("#legalResourcesMenu")).not_to_have_attribute("open", "")
+            expect(page.locator(".catalog-grid .law-code-card")).to_have_count(1)
+            expect(page.locator(".catalog-summary")).to_contain_text("Найдено кодексов: 1")
+            page.locator(".law-code-card").first.click()
+            # An empty root has no article heading or placeholder for readers.
+            expect(page.locator(".section-tile")).to_have_count(1)
+            expect(page.locator(".section-heading")).not_to_be_visible()
+            expect(page.locator(".eyebrow").first).to_have_text("PC")
+            assert page.get_by_text("Структура документа").count()==0
+            assert page.get_by_text("Содержание кодекса",exact=True).count()==0
+            page.locator(".section-tile").first.click()
+            expect(page.locator(".article-card")).to_have_count(1)
+            expect(page.locator(".article-card")).to_contain_text("Пример статьи")
+            expect(page.locator(".article-card .article-number").first).to_have_text("§ 1")
+            page.locator("#otherResourcesMenu summary").click()
+            expect(page.locator("#otherResourcesNav")).to_contain_text("Правительство")
+            expect(page.locator("#otherResourcesNav a")).to_have_count(0)
+            page.keyboard.press("Escape")
+            expect(page.locator("#otherResourcesMenu")).not_to_have_attribute("open", "")
+            page.set_viewport_size({"width":1920,"height":900})
+            assert abs(page.locator("#sidebar").bounding_box()["x"]) <= 1
+            page.set_viewport_size({"width":1440,"height":900})
+            expect(page.locator("#articleIndex .article-index-link")).to_have_count(1)
+            # A section click must not retain the old scroll position from the previous screen.
+            assert page.evaluate("window.scrollY") < 20
+            page.screenshot(path=str(captures / "law-portal-reader.png"), full_page=True)
+
+            # Search form navigates to an addressable search page.
+            page.locator("a.brand").click()
+            page.locator(".hero-search input").fill("Демонстрационная")
+            page.locator(".hero-search button").click()
+            expect(page).to_have_url(base_url + "/search?q=%D0%94%D0%B5%D0%BC%D0%BE%D0%BD%D1%81%D1%82%D1%80%D0%B0%D1%86%D0%B8%D0%BE%D0%BD%D0%BD%D0%B0%D1%8F")
+            expect(page.locator(".search-results-head")).to_contain_text("Найдено: 1")
+            expect(page.locator(".search-result")).to_have_count(1)
+            page.locator(".search-result").first.click()
+            expect(page.locator(".article-card")).to_be_visible()
+
+            # Mobile menu is functional, not merely responsive artwork.
+            page.set_viewport_size({"width":390, "height":820})
+            page.locator("a.brand").click()
+            expect(page.locator(".law-hero")).to_be_visible()
+            expect(page.locator("#legalResourcesMenu summary")).to_be_visible()
+            page.locator("#legalResourcesMenu summary").click()
+            expect(page.locator("#globalNav a[href='/search']")).to_be_visible()
+            page.keyboard.press("Escape")
+            page.locator("#menuToggle").click()
+            expect(page.locator("#layout")).to_have_class("layout menu-open")
+            expect(page.locator("#menuToggle")).to_have_attribute("aria-expanded", "true")
+            page.locator("#navBackdrop").click(position={"x":340,"y":120})
+            expect(page.locator("#layout")).to_have_class("layout")
+            expect(page.locator("#menuToggle")).to_have_attribute("aria-expanded", "false")
+            page.screenshot(path=str(captures / "law-portal-mobile.png"), full_page=True)
+
+
+            # Admin: code root articles appear below structural levels as equal siblings.
+            page.locator("#roleSelect").select_option("superadmin")
+            expect(page.locator(".portal-metric strong").first).to_have_text("1", timeout=15000)
+            response = page.request.post(
+                base_url + "/api/v1/articles",
+                headers={"X-Demo-User": "superadmin"},
+                data={"code_id": "demo-penal", "parent_id": None,
+                      "number": "42", "title": "Корневая статья",
+                      "text_rich": "<p>Статья непосредственно в кодексе.</p>",
+                      "categories": ["definition"]},
+            )
+            assert response.ok, response.text()
+            root_article = response.json()
+            page.set_viewport_size({"width":1440, "height":900})
+            page.goto(base_url + "/codes/demo-penal")
+            expect(page.locator(".tree-code-name")).to_have_text("Penal Code")
+            expect(page.locator(".code-tree-root > .root-article-index a")).to_have_count(1)
+            root_link = page.locator(".code-tree-root > .root-article-index a").first
+            expect(root_link).to_contain_text("42 · Корневая статья")
+            assert root_link.get_attribute("href") == "/articles/" + root_article["id"]
+            assert page.get_by_text("Статьи корня кодекса").count() == 0
+            expect(page.locator(".code-tree-root > .code-tree-node")).to_have_count(1)
+
+            # Add a custom type, then create a top-level division and a nested level.
+            page.get_by_role("button", name="Добавить тип уровня").click()
+            page.locator("#structureTypeFields input[name='type_name']").fill("Часть")
+            page.get_by_label("Корень кодекса", exact=True).check()
+            page.locator("#structureForm button[type='submit']").click()
+            expect(page.locator("#structureDialog")).not_to_be_visible()
+            page.get_by_role("button", name="Добавить часть / раздел").click()
+            page.locator("#structureTypeSelect").select_option(label="Часть")
+            page.locator("#structureParentSelect").select_option("")
+            page.locator("#structureNodeFields input[name='number']").fill("II")
+            page.locator("#structureNodeFields input[name='title']").fill("Дополнительные положения")
+            page.locator("#structureForm button[type='submit']").click()
+            expect(page.locator(".tree-code-name")).to_be_visible()
+            expect(page.locator(".code-tree-root")).to_contain_text("Часть II · Дополнительные положения")
+            expect(page.locator(".code-tree-root > .root-article-index a")).to_have_count(1)
+
+            page.get_by_role("button", name="Добавить тип уровня").click()
+            page.locator("#structureTypeFields input[name='type_name']").fill("Подраздел")
+            page.get_by_label("Часть", exact=True).check()
+            page.locator("#structureForm button[type='submit']").click()
+            expect(page.locator("#structureDialog")).not_to_be_visible()
+            page.goto(base_url + "/codes/demo-penal")
+            page.get_by_role("button", name="Добавить часть / раздел").click()
+            page.locator("#structureTypeSelect").select_option(label="Подраздел")
+            page.locator("#structureParentSelect").select_option(label="II · Дополнительные положения")
+            page.locator("#structureNodeFields input[name='number']").fill("1")
+            page.locator("#structureNodeFields input[name='title']").fill("Общие условия")
+            page.locator("#structureForm button[type='submit']").click()
+            expect(page.locator(".code-tree-root")).to_contain_text("Подраздел 1 · Общие условия")
+            expect(page.locator(".code-tree-root > .root-article-index a")).to_have_count(1)
+            page.screenshot(path=str(captures / "law-portal-code-tree.png"), full_page=True)
+
+            # Create a root article with the built-in editor, then move it to a subchapter.
+            page.goto(base_url + "/codes/demo-penal")
+            page.get_by_role("button", name="Создать статью").click()
+            expect(page.locator("#editorDialog")).to_be_visible()
+            page.locator("#articleParentSelect").select_option("")
+            page.locator("#articleForm input[name='number']").fill("85")
+            page.locator("#articleForm input[name='title']").fill("Свободная статья")
+            page.locator("#articleForm textarea[name='text_rich']").fill(
+                "<p>Размещается в корне кодекса.</p>")
+            page.locator("#articleForm button[type='submit']").click()
+            expect(page.locator("#editorDialog")).not_to_be_visible()
+            expect(page.locator(".article-card").filter(has_text="Свободная статья")).to_be_visible()
+            page.locator(".article-card").filter(has_text="Свободная статья").get_by_role("button", name="Редактировать").click()
+            expect(page.locator("#editorDialog")).to_be_visible()
+            target = page.locator("#articleParentSelect option").filter(
+                has_text="Подраздел 1 · Общие условия")
+            assert target.count() == 1
+            page.locator("#articleParentSelect").select_option(target.get_attribute("value"))
+            page.locator("#articleForm button[type='submit']").click()
+            expect(page.locator("#editorDialog")).not_to_be_visible()
+            expect(page.locator(".article-card")).to_contain_text("Свободная статья")
+            expect(page.locator("#articleIndex .article-index-link")).to_contain_text(
+                "85 · Свободная статья")
+            page.goto(base_url + "/codes/demo-penal")
+            expect(page.locator(".root-article-index .article-index-link")).to_have_count(1)
+            assert not page.locator(".root-article-index").get_by_text(
+                "85 · Свободная статья").count()
+
+            page.set_viewport_size({"width":390, "height":820})
+            page.screenshot(path=str(captures / "law-portal-hierarchy.png"), full_page=True)
+
+
+            # Code creation is discoverable from the catalog and creates a usable hierarchy.
+            page.set_viewport_size({"width":1440, "height":900})
+            page.goto(base_url + "/laws")
+            expect(page.locator(".catalog-admin-actions a")).to_be_visible()
+            page.locator(".catalog-admin-actions a").click()
+            expect(page.locator("#newCodeWizard")).to_be_visible()
+            page.locator("#newCodeName").fill("Civil Code Browser")
+            page.locator("#newCodeForm input[name='abbreviation']").fill("CCB")
+            page.locator("#newCodeForm select[name='jurisdiction_id']").select_option("state")
+            page.locator("#newCodeForm select[name='hierarchy_template']").select_option("standard")
+            page.locator(".code-publication-fields > summary").click()
+            page.locator("#newCodeForm input[name='publication_issuer']").fill("Орган штата")
+            page.locator("#newCodeForm input[name='publication_reference']").fill("PC-2026-004")
+            page.locator("#newCodeForm input[name='published_at']").fill("2026-11-04")
+            page.evaluate("window.scrollTo(0,0)")
+            page.screenshot(path=str(captures / "law-library-create-code.png"), full_page=True)
+            page.locator("#newCodeForm button[type='submit']").click()
+            expect(page.locator(".tree-code-name")).to_contain_text("Civil Code Browser")
+            expect(page.locator(".code-provenance")).to_contain_text("PC-2026-004")
+            assert page.locator(".law-hero").count() == 0
+
+            # The redesigned categories page edits a single category, not every open form.
+            page.goto(base_url + "/admin")
+            expect(page.locator(".admin-tabs a")).to_have_count(7)
+            page.locator(".admin-tabs a[href='/admin/categories']").click()
+            expect(page.locator(".category-workbench")).to_be_visible()
+            expect(page.locator(".category-detail")).to_be_visible()
+            expect(page.locator(".category-picker-item")).not_to_have_count(0)
+            assert page.locator(".category-detail > .category-field-item").count() == 0
+            page.locator("#addCategoryButton").click()
+            page.locator("#newCategoryName").fill("Практика толкования")
+            page.locator("#newCategoryForm button[type='submit']").click()
+            expect(page.locator(".category-detail-heading")).to_contain_text("Практика толкования")
+            expect(page.locator(".category-fields-list .category-field-item")).to_have_count(0)
+            page.locator(".category-add-field > summary").click()
+            page.locator(".category-add-field input").first.fill("Режим толкования")
+            page.locator(".category-add-field select").first.select_option("choice")
+            page.locator(".category-add-field select").nth(1).select_option("multiple")
+            page.locator(".category-add-field button[type='submit']").click()
+            expect(page.locator(".category-field-item")).to_have_count(1)
+            expect(page.locator(".category-field-item")).to_contain_text("Режим толкования")
+            page.locator(".category-option-form input").fill("Обязательное")
+            page.locator(".category-option-form button[type='submit']").click()
+            expect(page.locator(".category-option-row")).to_have_count(1)
+            page.locator(".category-option-row > input").fill("Рекомендуемое")
+            page.locator(".category-option-row input[type='checkbox']").uncheck()
+            page.locator(".category-option-row button").click()
+            expect(page.locator(".category-option-row > input")).to_have_value("Рекомендуемое")
+            expect(page.locator(".category-option-row input[type='checkbox']")).not_to_be_checked()
+            page.evaluate("window.scrollTo(0,0)")
+            page.screenshot(path=str(captures / "law-library-admin.png"), full_page=True)
+            page.set_viewport_size({"width":900,"height":820})
+            expect(page.locator(".category-workbench")).to_be_visible()
+            assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 2")
+            page.screenshot(path=str(captures / "law-library-admin-narrow.png"), full_page=True)
+            page.set_viewport_size({"width":1440,"height":900})
+
+            # Archive operations show a server preview and require separate confirmation.
+            page.goto(base_url + "/admin/archive?article=" + root_article["id"])
+            expect(page.locator(".admin-panel")).to_contain_text("Архив статей и разделов")
+            page.get_by_role("button", name="Посмотреть, что попадёт в архив").click()
+            expect(page.locator(".admin-preview")).to_contain_text(
+                "Что будет перемещено в архив")
+            page.on("dialog", lambda dialog: dialog.accept())
+            page.get_by_role("button", name="Подтвердить архивирование").click()
+            expect(page.locator(".admin-list")).to_contain_text("Архив от")
+            page.get_by_role("button", name="Восстановить материалы").first.click()
+            expect(page.locator(".admin-preview")).to_contain_text("Восстановление")
+            page.get_by_role("button", name="Восстановить", exact=True).click()
+            # The restore handler is async. Wait for the server state, not a heading
+            # that was already present before the restore request completed.
+            for _ in range(160):
+                restored = page.request.get(base_url+"/api/v1/articles/"+root_article["id"],
+                    headers={"X-Demo-User":"lawyer"})
+                if restored.ok and restored.json().get("status")=="active":
+                    break
+                time.sleep(.05)
+            else:
+                raise AssertionError("Archive restore did not complete")
+            expect(page.locator(".admin-panel")).to_contain_text("Архив статей и разделов")
+
+            # Lawyer-only search exposes the complete filter surface.
+            page.locator("#roleSelect").select_option("lawyer")
+            page.goto(base_url + "/search?query=Свободная")
+            expect(page.locator(".search-page-filters")).to_be_visible()
+            expect(page.locator("select[name='has_sanctions']")).to_be_visible()
+            expect(page.locator("select[name='field_id']")).to_be_visible()
+            expect(page.locator("select[name='mode']")).to_be_visible()
+            page.screenshot(path=str(captures / "law-library-search.png"), full_page=True)
+
+            assert not errors, "JavaScript errors: " + repr(errors)
+            browser.close()
+    finally:
+        server.terminate()
+        try:
+            server.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            server.kill()
+            server.wait(timeout=10)
