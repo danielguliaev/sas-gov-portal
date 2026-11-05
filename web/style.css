@@ -73,3 +73,16 @@ dialog fieldset{border:1px solid #e1e8ed;margin:16px 0;padding:17px;border-radiu
 
 /* Preserve native hidden behavior even when button/grid display rules apply. */
 [hidden]{display:none!important;}
+
+/* Legal-library reading workflow: compact actions, readable additional context. */
+.article-card > .article-actions{flex-wrap:nowrap;gap:5px;overflow-x:auto;scrollbar-width:thin;}
+.article-card > .article-actions .button{white-space:nowrap;padding:8px 10px;font-size:.72rem;flex-shrink:0;}
+.article-archive-action{font-size:1.12rem!important;min-width:36px;padding:6px!important;}
+.annotation-panel{margin-top:20px;padding-top:14px;border-top:1px solid #e4eaf0;}
+.annotation-panel h3{font-family:inherit;font-size:.86rem;margin:0 0 10px;color:#365674;}
+.annotation-panel .article-actions{margin-top:0;padding:4px 0 12px;border:0;}
+.annotation-panel .annotation-add{font-size:.79rem;padding:9px 14px;}
+.annotation-meta{display:block;color:#8494a3;font-size:.7rem;margin-top:6px;font-variant-numeric:tabular-nums;}
+.annotation-entry{border-bottom:1px solid #e4eaf0;padding:10px 0;}
+.annotation-entry:last-child{border-bottom:0;}
+@media(max-width:700px){.article-card > .article-actions{margin-left:-5px;margin-right:-5px;}.article-card > .article-actions .button{font-size:.7rem;}}
