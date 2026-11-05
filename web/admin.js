@@ -619,19 +619,66 @@ async function adminCategories(area) {
 }
 
 async function adminArticleFinder(label,initial) {
-    const wrap=el("div","admin-finder");
-    const query=adminInput(initial||"","Номер, название или текст статьи");
-    const select=adminSelect([],undefined,"Сначала выполните поиск");
-    const search=adminButton("Найти статью",()=>adminSafe(async()=>{
-        if(!query.value.trim())throw Error("Введите поисковый запрос.");
-        const found=await api("/search?query="+encodeURIComponent(query.value.trim()));
-        select.replaceChildren(new Option("Выберите статью",""));
-        found.items.forEach(a=>select.append(new Option(
-            a.number+" · "+displayLegalTitle(a.title)+" · "+a.code_id,a.id)));
-        if(!found.items.length)notify("Совпадений нет.");
-    }));
-    wrap.append(adminField(label,query),search,select);
-    return {wrap,query,select};
+    const wrap=el("section","admin-finder article-picker");
+    const heading=el("div","article-picker-heading");
+    heading.append(el("strong","",label),
+        el("p","muted","Введите номер или несколько слов из названия статьи."));
+    const query=adminInput("","Например: 187 или убийство");
+    query.setAttribute("aria-label","Поиск: "+label);
+    query.autocomplete="off";
+    const select=adminSelect([],undefined,"Статья не выбрана");
+    select.classList.add("article-picker-native");
+    select.setAttribute("aria-label","Выбранная статья: "+label);
+    const chosen=el("div","article-picker-chosen muted","Статья пока не выбрана");
+    chosen.setAttribute("role","status");
+    const results=el("div","article-picker-results");
+    const search=adminButton("Найти",()=>adminSafe(find),"primary");
+    const searchRow=el("div","article-picker-search");
+    searchRow.append(query,search);
+    const status=el("p","article-picker-status muted");
+    const codeName=id=>allCodes.find(c=>c.id===id)?.name||id||"Кодекс";
+    function choose(item){
+        select.replaceChildren(new Option(item.number+" · "+displayLegalTitle(item.title),item.id));
+        select.value=item.id;
+        chosen.textContent="Выбрано: ст. "+item.number+" — "+displayLegalTitle(item.title);
+        results.querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.articleId===item.id)));
+        select.dispatchEvent(new Event("change",{bubbles:true}));
+    }
+    async function find(){
+        const phrase=query.value.trim();
+        if(!phrase){status.textContent="Введите номер или название статьи.";query.focus();return;}
+        status.textContent="Ищем статьи…";
+        search.disabled=true;
+        try{
+            const response=await api("/search?query="+encodeURIComponent(phrase));
+            results.replaceChildren();
+            const items=response.items||[];
+            status.textContent=items.length?"Найдено: "+items.length+". Выберите подходящую статью.":"Статей по этому запросу не найдено.";
+            items.forEach(item=>{
+                const button=el("button","article-picker-option");
+                button.type="button";button.dataset.articleId=item.id;
+                button.setAttribute("aria-pressed",String(select.value===item.id));
+                button.append(el("strong","","Статья "+item.number+" · "+displayLegalTitle(item.title)),
+                    el("small","",codeName(item.code_id)));
+                button.onclick=()=>choose(item);
+                results.append(button);
+            });
+        }catch(error){status.textContent=error.message;}
+        finally{search.disabled=false;}
+    }
+    query.addEventListener("keydown",event=>{
+        if(event.key==="Enter"){event.preventDefault();find();}
+    });
+    if(initial){
+        select.replaceChildren(new Option(initial,initial));
+        select.value=initial;
+        chosen.textContent="Выбрана исходная статья";
+        api("/articles/"+encodeURIComponent(initial)).then(item=>{
+            if(select.value===initial)choose(item);
+        }).catch(()=>{chosen.textContent="Выбрана статья (ID: "+initial+")";});
+    }
+    wrap.append(heading,searchRow,chosen,status,results,select);
+    return {wrap,query,select,search,results,choose};
 }
 /* Redesigned workbench lives in admin-workbench.js. */
 async function adminArchive(area) {
