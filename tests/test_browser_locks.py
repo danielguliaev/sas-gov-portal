@@ -43,7 +43,8 @@ def test_two_browser_tabs_respect_editor_locks_and_dirty_exit(tmp_path):
             href=base+"/articles/"+article_id
             first.goto(base+"/")
             first.locator("#roleSelect").select_option("superadmin")
-            first.goto(href)
+            expect(first.locator(".portal-metric strong").first).to_have_text("1",timeout=15000)
+            first.goto(href,wait_until="domcontentloaded")
             own=first.locator("#card-"+article_id)
             expect(own).to_be_visible()
             own.get_by_role("button",name="Редактировать").click()
@@ -54,7 +55,8 @@ def test_two_browser_tabs_respect_editor_locks_and_dirty_exit(tmp_path):
             second.on("dialog",lambda d:d.dismiss())
             second.goto(base+"/")
             second.locator("#roleSelect").select_option("superadmin")
-            second.goto(href)
+            expect(second.locator(".portal-metric strong").first).to_have_text("1",timeout=15000)
+            second.goto(href,wait_until="domcontentloaded")
             expect(second.locator("#card-"+article_id)).to_be_visible()
             second.locator("#card-"+article_id).get_by_role(
                 "button",name="Редактировать").click()

@@ -264,7 +264,7 @@ def test_legislation_portal_desktop_and_mobile(tmp_path):
             expect(page.locator(".admin-list")).to_contain_text("Архив от")
             page.get_by_role("button", name="Восстановить материалы").first.click()
             expect(page.locator(".admin-preview")).to_contain_text("Восстановление")
-            page.get_by_role("button", name="Восстановить").click()
+            page.get_by_role("button", name="Восстановить", exact=True).click()
             # The restore handler is async. Wait for the server state, not a heading
             # that was already present before the restore request completed.
             for _ in range(160):
