@@ -2,7 +2,7 @@
 "use strict";
 function annotationRow(note) {
     const row=el("div","annotation-entry");
-    row.append(el("blockquote","",note.quote),
+    row.append(el("blockquote","annotation-quote","«"+note.quote+"»"),
         el("p","",note.note_text),
         el("small","annotation-meta","Автор: "+(note.author_name||note.author_id||"Неизвестный пользователь")+" · "+new Intl.DateTimeFormat("en-US",{month:"2-digit",day:"2-digit",year:"numeric",timeZone:"UTC"}).format(new Date(note.created_at)).replaceAll("/",".")));
     return row;
