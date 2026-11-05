@@ -635,8 +635,8 @@ async function adminArticleFinder(label,initial) {
 }
 /* Redesigned workbench lives in admin-workbench.js. */
 async function adminArchive(area) {
-    const section=adminSection("Архивирование и восстановление",
-        "Публикация не удаляется физически. Операции применяются атомарно после предварительного просмотра и явного подтверждения.");
+    const section=adminSection("Архив статей и разделов",
+        "Здесь можно убрать статью или раздел из действующей библиотеки и при необходимости вернуть обратно. Тексты и история изменений сохранятся.");
     const source=adminSelect([["Статья","article_id"],["Раздел и вложенная структура","node_id"]],
         new URLSearchParams(location.search).has("node")?"node_id":"article_id");
     const target=adminInput(new URLSearchParams(location.search).get("article")||
@@ -646,43 +646,44 @@ async function adminArchive(area) {
         if(!body[source.value])throw Error("Укажите ID объекта для архивирования.");
         const plan=await api("/archive/preview",{method:"POST",body});
         const panel=el("div","admin-preview");
-        panel.append(el("h3","","Предварительный просмотр архивирования"),
-            el("p","","Разделов: "+plan.node_count+"; статей: "+plan.article_count));
+        panel.append(el("h3","","Что будет перемещено в архив"),
+            el("p","","Статей: "+plan.article_count+" · Разделов: "+plan.node_count),
+            el("p","muted","Материалы исчезнут из действующего каталога, но останутся доступны в архиве для восстановления."));
         const ids=el("div","admin-id-list");
         plan.node_ids.forEach(id=>ids.append(el("p","","Раздел: "+id)));
         plan.article_ids.forEach(id=>ids.append(adminLink("Статья "+id,"/articles/"+id)));
-        panel.append(ids);
+        // Keep technical IDs out of the normal reader flow.
+        if(false)panel.append(ids);
         const confirmButton=adminButton("Подтвердить архивирование",()=>adminSafe(async()=>{
-            if(!confirm("Архивировать указанные элементы? Подтвердите действие."))return;
+            if(!confirm("Переместить выбранные материалы в архив? Их можно будет восстановить."))return;
             await api("/archive-batches",{method:"POST",headers:{
                 "Idempotency-Key":crypto.randomUUID()},
                 body:{...body,preview_hash:plan.preview_hash,confirm:true}});
-            notify("Архивирование подтверждено сервером.");
+            notify("Материалы перемещены в архив.");
             go("/admin/archive");
         }),"danger");
         panel.append(confirmButton);
         preview.replaceChildren(panel);
     });
-    form.save.textContent="Проверить состав архива";
+    form.save.textContent="Посмотреть, что попадёт в архив";
     form.form.prepend(adminField("Тип объекта",source),adminField("Постоянный ID",target));
     const preview=el("div");
     section.append(form.form,preview);
     const inventory=el("div","admin-list");
-    section.append(el("h3","","Архивные операции"),inventory);
+    section.append(el("h3","","Ранее архивированные материалы"),inventory);
     const records=await api("/admin/archives");
     if(!records.length)inventory.append(adminInfo("Архив пока пуст."));
     records.forEach(item=>{
         const card=el("div","admin-subpanel");
-        card.append(el("h3","","Операция "+item.id.slice(0,8)),
-            el("p","muted",friendlyDate(item.created_at)+" · "+item.article_count+
-                " статей · "+item.node_count+" разделов"));
+        card.append(el("h3","","Архив от "+friendlyDate(item.created_at)),
+            el("p","muted",item.article_count+" статей · "+item.node_count+" разделов"));
         const details=el("details");
-        details.append(el("summary","","Содержимое архивной операции"));
+        details.append(el("summary","","Показать список материалов"));
         item.archived_articles.forEach(a=>details.append(adminLink(
             "Статья "+a.number+" · "+displayLegalTitle(a.title),"/articles/"+a.id)));
         item.archived_nodes.forEach(n=>details.append(el("p","",n.number+" · "+displayLegalTitle(n.title))));
         card.append(details);
-        const previewBtn=adminButton("Просмотреть восстановление",()=>adminSafe(async()=>{
+        const previewBtn=adminButton("Восстановить материалы",()=>adminSafe(async()=>{
             const result=await api("/archive-batches/"+item.id+"/preview");
             const summary=el("div","admin-preview");
             summary.append(el("strong","","Восстановление: "+result.article_ids.length+
@@ -718,7 +719,7 @@ async function adminArchive(area) {
                 if(result.conflicts.length && !agree.checked){
                     throw Error("Подтвердите замену конфликтующих действующих статей.");
                 }
-                if(!confirm("Восстановить указанные архивные объекты?"))return;
+                if(!confirm("Вернуть выбранные материалы в действующую библиотеку?"))return;
                 const body={batch_id:item.id,preview_hash:result.preview_hash,
                     confirm:true,confirm_swap:!!agree.checked};
                 if(destination.value!=="__unchanged")
