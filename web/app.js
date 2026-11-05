@@ -16,7 +16,9 @@ let oidcConfig=null;
 let authButton=null;
 const CATEGORY_NAMES = {accusation:"Обвинение",punishment_measure:"Мера наказания",
   aggravating:"Отягчающие обстоятельства",mitigating:"Смягчающие обстоятельства",
-  auxiliary:"Вспомогательная мера",definition:"Определение"};
+  auxiliary:"Вспомогательная мера",definition:"Определение",
+  "pen-i-unclassified-accusation":"Обвинение — требуется указать уголовно-правовой класс",
+  "pen-i-auxiliary-norm":"Вспомогательная норма"};
 roleSelect.value = role;
 let currentUser = null;
 let favoriteIds = new Set();
