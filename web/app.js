@@ -582,68 +582,76 @@ function appendArticleIndex(container, endpoint) {
     container.append(more);
     fetchNext();
 }
+
 function renderCodeNav(code, selectedNode, directTarget) {
-    // Each expansion fetches a bounded page of direct child nodes. The sidebar
-    // never needs the entire hierarchy or full legal article bodies.
+    // The sidebar uses the same paginated mixed sequence as the reader:
+    // articles may appear before, between and after structural levels.
     codeNav.replaceChildren();
     const header=el("a","tree-code-name",code.name);
     header.href="/codes/"+code.id;
     header.dataset.link="";
-    if(!selectedNode && location.pathname===header.getAttribute("href"))header.classList.add("active");
+    if(!selectedNode && location.pathname===header.getAttribute("href"))
+        header.classList.add("active");
     const root=el("div","code-tree-root");
+    if(!selectedNode)root.id="articleIndex";
     codeNav.append(header,root);
     const state=treeStorage(code.id);
     const path=(treeData && treeData.ancestors || []);
     const pathIds=path.map(n=>n.id);
     const pathSet=new Set(pathIds);
-    const topLevelArticles=el("div","article-index root-article-index");
-    if(!selectedNode)topLevelArticles.id="articleIndex";
-    root.append(topLevelArticles);
 
     function loadChildren(parentId,container,requiredId) {
         let cursor=null,finished=false,busy=false;
         const seen=new Set();
-        const more=el("button","nav-index-more","Показать следующие разделы");
+        const more=el("button","nav-index-more","Показать следующие элементы");
         more.type="button";
-        const destination=container.firstElementChild;
-        if(destination)container.insertBefore(more,destination);
-        else container.append(more);
+        container.append(more);
+        function appendArticle(item) {
+            let group=more.previousElementSibling;
+            if(!group || !group.classList.contains("article-index")){
+                group=el("div","article-index"+(!parentId?" root-article-index":""));
+                container.insertBefore(group,more);
+            }
+            const link=el("a","nav-item article-index-link",
+                "§ "+item.number+" · "+displayLegalTitle(item.title));
+            link.href="/articles/"+item.id;link.dataset.link="";
+            link.dataset.articleId=item.id;
+            if(location.pathname===link.getAttribute("href"))link.classList.add("active");
+            group.append(link);
+        }
         async function page() {
             if(finished||busy||!root.isConnected)return;
-            busy=true;
-            more.disabled=true;more.textContent="Загрузка разделов…";
+            busy=true;more.disabled=true;more.textContent="Загрузка содержания…";
             try{
                 const params=new URLSearchParams({limit:"50"});
                 if(parentId)params.set("parent_id",parentId);
                 if(cursor)params.set("cursor",cursor);
-                const result=await api("/codes/"+code.id+"/structure-index?"+params);
+                const result=await api("/codes/"+code.id+"/outline?"+params);
                 if(!root.isConnected)return;
-                result.items.forEach(node=>{
-                    seen.add(node.id);
-                    container.insertBefore(entry(node),more);
+                result.items.forEach(item=>{
+                    if(item.kind==="node"){
+                        seen.add(item.id);
+                        container.insertBefore(entry(item),more);
+                    } else appendArticle(item);
                 });
                 cursor=result.next_cursor;
                 finished=!result.has_more;
                 more.hidden=finished;
-                if(!finished)more.textContent="Показать следующие разделы";
-                if(!result.items.length && finished)more.remove();
+                more.textContent="Показать следующие элементы";
             }catch(error){
                 more.hidden=false;
-                more.textContent="Повторить загрузку разделов";
+                more.textContent="Повторить загрузку содержания";
                 more.title=error.message;
             }finally{
-                busy=false;
-                more.disabled=false;
+                busy=false;more.disabled=false;
             }
         }
         more.onclick=page;
         async function ensure() {
             await page();
-            // The path to a deep-linked article may lie beyond the first 50
-            // siblings. Load only as far as necessary to reach that branch.
-            while(requiredId && !seen.has(requiredId) && !finished &&
-                  more.textContent!=="Повторить загрузку разделов" &&
-                  root.isConnected) {
+            while(requiredId&&!seen.has(requiredId)&&!finished &&
+                  more.textContent!=="Повторить загрузку содержания" &&
+                  root.isConnected){
                 await page();
             }
         }
@@ -653,48 +661,37 @@ function renderCodeNav(code, selectedNode, directTarget) {
         const wrap=el("div","code-tree-node");
         const line=el("div","tree-entry");
         const selected=node.id===selectedNode;
-        const type=treeData.types.find(t=>t.id===node.type_id);
-        const caption=(node.number?(type?type.name+" ":node.type_name?node.type_name+" ":"")+node.number+" · ":"")+
+        const caption=(node.number?(node.type_name+" "+node.number+" · "):"")+
             displayLegalTitle(node.title);
         const link=el("a","nav-item",caption);
         link.href="/codes/"+code.id+"/nodes/"+node.id;
         link.dataset.link="";link.dataset.nodeId=node.id;
         if(selected)link.classList.add("active");
-        const hasBranches=Number(node.child_count||0)>0||pathSet.has(node.id)||selected;
+        const hasBranches=Number(node.child_count||0)>0 ||
+            Number(node.article_count||0)>0 || pathSet.has(node.id) || selected;
         const toggle=el("button","tree-toggle","▸");
-        toggle.type="button";
-        toggle.disabled=!hasBranches;
+        toggle.type="button";toggle.disabled=!hasBranches;
         toggle.setAttribute("aria-label","Развернуть "+displayLegalTitle(node.title));
         line.append(toggle,link);
         wrap.append(line);
         if(hasBranches){
             const branch=el("div","tree-branch");
+            if(selected)branch.id="articleIndex";
             wrap.append(branch);
-            const index=selected?el("div","article-index"):null;
             const childOnPath=pathIds[pathIds.indexOf(node.id)+1]||null;
-            const children=Number(node.child_count||0)>0?
-                loadChildren(node.id,branch,childOnPath):null;
-            if(index){
-                index.id="articleIndex";
-                branch.append(index);
-            }
+            const children=loadChildren(node.id,branch,childOnPath);
             let expanded=state.expanded.includes(node.id)||selected||
-                (pathSet.has(node.id) && (directTarget||!state.suppressed.includes(node.id)));
+                (pathSet.has(node.id)&&(directTarget||!state.suppressed.includes(node.id)));
             let launched=false;
             function paint(){
                 branch.hidden=!expanded;
                 toggle.textContent=expanded?"▾":"▸";
                 toggle.setAttribute("aria-expanded",String(expanded));
             }
-            function loadExpanded() {
+            function loadExpanded(){
                 if(!expanded||launched)return;
                 launched=true;
-                Promise.resolve().then(async()=>{
-                    if(!root.isConnected)return;
-                    if(children)await children.ensure();
-                    if(index && index.isConnected)
-                        appendArticleIndex(index,"/nodes/"+node.id+"/article-index");
-                }).catch(error=>notify(error.message));
+                children.ensure().catch(error=>notify(error.message));
             }
             toggle.onclick=()=>{
                 expanded=!expanded;
@@ -702,17 +699,14 @@ function renderCodeNav(code, selectedNode, directTarget) {
                 state.suppressed=state.suppressed.filter(x=>x!==node.id);
                 (expanded?state.expanded:state.suppressed).push(node.id);
                 saveTreeStorage(code.id,state);
-                paint();
-                loadExpanded();
+                paint();loadExpanded();
             };
-            paint();
-            loadExpanded();
+            paint();loadExpanded();
         }
         return wrap;
     }
     const initial=loadChildren(null,root,pathIds[0]||null);
     initial.ensure().catch(error=>notify(error.message));
-    appendArticleIndex(topLevelArticles,"/codes/"+code.id+"/root/article-index");
 }
 function highlightSidebar(articleId) {
     if (!reading) return;
@@ -892,77 +886,91 @@ function createArticleCard(a) {
     }
     return card;
 }
+function outlineSectionTile(node,codeId) {
+    const a=el("a","section-tile");
+    a.href="/codes/"+codeId+"/nodes/"+node.id;
+    a.dataset.link="";
+    const label=el("span","section-tile-text");
+    label.append(el("strong","",displayLegalTitle(node.title)),
+        el("small","",node.type_name||"Раздел кодекса"));
+    if(node.number)a.append(el("span","section-tile-number",node.number));
+    a.append(label,el("span","section-tile-arrow","↗"));
+    return a;
+}
 async function loadNext() {
     if (!reading || reading.loading || !reading.hasMore) return;
-    const state = reading;
-    state.loading = true;
-    state.status.replaceChildren(el("span", "", "Загрузка статей…"));
+    const state=reading;
+    state.loading=true;
+    state.status.replaceChildren(el("span","","Загрузка содержания…"));
     try {
-        const endpoint = state.nodeId ? "/nodes/" + state.nodeId + "/articles" :
-            "/codes/" + state.codeId + "/root/articles";
-        const params = new URLSearchParams({limit:"12"});
-        if (state.cursor) params.set("cursor", state.cursor);
-        const result = await api(endpoint + "?" + params);
-        if (reading !== state) return;
-        result.items.forEach(a => {
-            const card = createArticleCard(a);
-            state.cards.append(card);
-            if (activeObserver) activeObserver.observe(card);
+        const params=new URLSearchParams({limit:"12",include_articles:"true"});
+        if(state.nodeId)params.set("parent_id",state.nodeId);
+        if(state.cursor)params.set("cursor",state.cursor);
+        const result=await api("/codes/"+state.codeId+"/outline?"+params);
+        if(reading!==state)return;
+        state.heading.hidden=!isAdmin() && result.article_count===0;
+        result.items.forEach(item=>{
+            if(item.kind==="node"){
+                let group=state.cards.lastElementChild;
+                if(!group || !group.classList.contains("section-grid")){
+                    group=el("div","section-grid outline-section-grid");
+                    state.cards.append(group);
+                }
+                group.append(outlineSectionTile(item,state.codeId));
+            }else{
+                const card=createArticleCard(item.article);
+                state.cards.append(card);
+                if(activeObserver)activeObserver.observe(card);
+                state.loaded++;
+            }
         });
-        state.cursor = result.next_cursor;
-        state.hasMore = result.has_more;
-        state.loaded += result.items.length;
-        if (state.count) state.count.textContent = "Загружено статей: " + state.loaded;
-        state.loading = false;
+        state.cursor=result.next_cursor;
+        state.hasMore=result.has_more;
+        if(state.count)state.count.textContent="Загружено статей: "+state.loaded;
+        state.loading=false;
         state.status.replaceChildren();
-        if (!state.hasMore && !state.cards.children.length) {
-            state.status.append(el("p", "reader-empty", state.emptyMessage || "Статей пока нет."));
-        } else if (state.hasMore) {
-            const more = el("button", "button ghost", "Загрузить ещё статьи");
-            more.type = "button";
-            more.onclick = () => loadNext();
+        if(!state.hasMore && !state.cards.children.length && isAdmin()){
+            state.status.append(el("p","reader-empty",state.emptyMessage));
+        }else if(state.hasMore){
+            const more=el("button","button ghost","Загрузить ещё элементы");
+            more.type="button";more.onclick=()=>loadNext();
             state.status.append(more);
         }
-        if (state.targetId) {
-            const target = document.getElementById("card-" + state.targetId);
-            if (target) {
-                // Browser history restores its own precise position; a newly opened
-                // permalink instead highlights and scrolls to the selected article.
-                if (state.restoreScroll === null) {
+        if(state.targetId){
+            const target=document.getElementById("card-"+state.targetId);
+            if(target){
+                if(state.restoreScroll===null){
                     target.classList.add("target");
                     target.scrollIntoView({block:"start"});
-                    setTimeout(() => target.classList.remove("target"), 2800);
+                    setTimeout(()=>target.classList.remove("target"),2800);
                 }
-                state.targetId = null;
-            } else if (state.hasMore) {
-                await loadNext();
-                return;
-            } else {
+                state.targetId=null;
+            }else if(state.hasMore){
+                await loadNext();return;
+            }else{
                 notify("Целевая статья отсутствует в текущем разделе.");
-                state.targetId = null;
+                state.targetId=null;
             }
         }
-        if (state.restoreScroll !== null) {
-            if (document.body.scrollHeight >= state.restoreScroll + window.innerHeight ||
-                !state.hasMore) {
-                window.scrollTo(0, state.restoreScroll);
-                state.restoreScroll = null;
-                state.restoring = false;
+        if(state.restoreScroll!==null){
+            if(document.body.scrollHeight>=state.restoreScroll+window.innerHeight ||
+                !state.hasMore){
+                window.scrollTo(0,state.restoreScroll);
+                state.restoreScroll=null;
+                state.restoring=false;
                 storePosition();
-            } else {
-                await loadNext();
-                return;
+            }else{
+                await loadNext();return;
             }
-        } else {
-            state.restoring = false;
-            storePosition();
+        }else{
+            state.restoring=false;storePosition();
         }
-    } catch(error) {
-        if (reading !== state) return;
-        state.loading = false;
-        state.status.replaceChildren(el("span", "", "Не удалось загрузить статьи"));
-        const retry = el("button", "button ghost", "Повторить");
-        retry.onclick = () => loadNext();
+    }catch(error){
+        if(reading!==state)return;
+        state.loading=false;
+        state.status.replaceChildren(el("span","","Не удалось загрузить содержание"));
+        const retry=el("button","button ghost","Повторить");
+        retry.onclick=()=>loadNext();
         state.status.append(retry);
     }
 }
@@ -1153,9 +1161,9 @@ async function openSection(codeId, nodeId, targetId, options, serial) {
     }
     main.append(breadcrumb(trail));
     const title = selected ? (selected.number?selected.number+" · ":"")+displayLegalTitle(selected.title) : code.name;
-    pageHeading(code.abbreviation ? "Кодекс " + code.abbreviation : "Законодательный кодекс",
+    pageHeading(code.abbreviation || "Кодекс",
                 title, selected ? "Структурный раздел кодекса «" + code.name + "»." :
-                "Содержание кодекса. Выберите раздел для изучения норм права.");
+                (code.description || ""));
     if (code.publication_issuer || code.publication_reference || code.published_at) {
         const provenance=el("p","code-provenance");
         const fields=[];
@@ -1227,55 +1235,7 @@ async function openSection(codeId, nodeId, targetId, options, serial) {
     toolbar.append(count);
     main.append(toolbar);
 
-    const query=new URLSearchParams({limit:"24"});
-    if(nodeId)query.set("parent_id",nodeId);
-    const subnodePage=await api("/codes/"+codeId+"/structure-index?"+query);
-    if(serial!==lastNavSerial)return;
-    const subnodes=subnodePage.items;
-    if(subnodes.length){
-        const sections=el("section","section-catalog");
-        sections.append(homeSectionHeading("Структура документа",
-            selected?"Подразделы":"Содержание кодекса"));
-        const sectionGrid=el("div","section-grid");
-        const renderSubnode=node=>{
-            const type=treeData.types.find(t=>t.id===node.type_id);
-            const a=el("a","section-tile");
-            a.href="/codes/"+codeId+"/nodes/"+node.id;
-            a.dataset.link="";
-            const title=el("span","section-tile-text");
-            title.append(el("strong","",displayLegalTitle(node.title)),
-                el("small","",type?type.name:node.type_name||"Раздел кодекса"));
-            if(node.number)a.append(el("span","section-tile-number",node.number));
-            a.append(title,el("span","section-tile-arrow","↗"));
-            return a;
-        };
-        subnodes.forEach(node=>sectionGrid.append(renderSubnode(node)));
-        sections.append(sectionGrid);
-        if(subnodePage.has_more){
-            const more=el("button","button ghost","Показать следующие разделы");
-            let cursor=subnodePage.next_cursor;
-            more.type="button";
-            more.onclick=async()=>{
-                more.disabled=true;more.textContent="Загрузка разделов…";
-                try{
-                    const params=new URLSearchParams({limit:"24",cursor});
-                    if(nodeId)params.set("parent_id",nodeId);
-                    const page=await api("/codes/"+codeId+"/structure-index?"+params);
-                    if(!sections.isConnected)return;
-                    page.items.forEach(node=>sectionGrid.append(renderSubnode(node)));
-                    cursor=page.next_cursor;
-                    if(!page.has_more)more.remove();
-                }catch(error){
-                    notify(error.message);
-                }finally{
-                    more.disabled=false;
-                    more.textContent="Показать следующие разделы";
-                }
-            };
-            sections.append(more);
-        }
-        main.append(sections);
-    }
+    // The mixed outline is loaded lazily below, in its persisted order.
     const heading = el("div", "section-heading");
     heading.append(el("h2", "", selected ? "Статьи раздела" : "Статьи кодекса"));
     if (isAdmin()) {
@@ -1283,6 +1243,7 @@ async function openSection(codeId, nodeId, targetId, options, serial) {
         create.onclick = () => openEditor(null, codeId, nodeId);
         heading.append(create);
     }
+    heading.hidden=!isAdmin();
     main.append(heading);
     const cards = el("section", "reader-articles");
     cards.setAttribute("aria-label", "Текст статей");
@@ -1299,10 +1260,8 @@ async function openSection(codeId, nodeId, targetId, options, serial) {
          (!targetId ? Number(sessionStorage.getItem("sas-scroll:" + location.pathname) || 0) : null)) : null;
     reading = {
         path:location.pathname, restoring:rememberedPosition!==null || Boolean(targetId),
-        codeId, nodeId, cards, status:loadStatus, cursor:null, hasMore:true, loading:false,
-        loaded:0, count, emptyMessage: subnodes.length ?
-            "В этом разделе пока нет отдельных статей. Выберите подраздел выше или в боковом содержании." :
-            "В данном разделе ещё нет опубликованных статей.",
+        codeId, nodeId, cards, heading, status:loadStatus, cursor:null, hasMore:true, loading:false,
+        loaded:0, count, emptyMessage: "В данном разделе ещё нет опубликованных статей.",
         targetId: targetId || null,
         restoreScroll: rememberedPosition
     };
@@ -1321,7 +1280,7 @@ async function openSection(codeId, nodeId, targetId, options, serial) {
     loadObserver.observe(loadStatus);
     if (targetId) {
         const position = await api("/articles/" + targetId + "/position");
-        if (reading && reading.targetId === targetId) reading.cursor = position.cursor_before;
+        if (reading && reading.targetId === targetId) reading.cursor = position.outline_cursor_before;
     }
     await loadNext();
 }
@@ -1821,6 +1780,7 @@ async function openEditor(article, codeId, nodeId) {
         }
         editorState=state;editorDirty=false;
         editorForm.reset();
+        document.getElementById("articleInsertPlacementLabel").hidden=Boolean(article);
         editorForm.elements.number.value=article?article.number:"";
         editorForm.elements.title.value=article?article.title:"";
         switchEditorMode(false);
@@ -1927,6 +1887,8 @@ editorForm.addEventListener("submit",async event=>{
             state.baseRevision=saved.revision_id;
             state.article=saved;
         } else {
+            const insertion=editorForm.elements.insert_at.value;
+            if(insertion!=="")body.insert_at=Number(insertion);
             saved=await api("/articles",{method:"POST",body:Object.assign(body,{code_id:state.codeId})});
             state.article=saved;state.baseRevision=saved.revision_id;
         }

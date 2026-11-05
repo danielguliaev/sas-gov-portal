@@ -470,3 +470,8 @@ kbd {font:600 .73rem/1.3 ui-monospace,Consolas,monospace;background:#edf2f5;bord
   .header-actions select { max-width:98px; }
   .header-dropdown > summary { font-size:.78rem; }
 }
+
+/* Mixed code outline: groups of sibling sections can alternate with article cards. */
+.reader-articles > .outline-section-grid {margin:20px 0 26px;}
+.reader-articles > .article-card {margin:20px 0;}
+#articleIndex .article-index-link.active {font-weight:750;}

@@ -60,7 +60,7 @@ def test_reader_retry_and_deep_article_link(tmp_path):
                     route.abort("failed")
                 else:
                     route.continue_()
-            page.route("**/api/v1/nodes/demo-intro/articles?*",temporary_failure)
+            page.route("**/api/v1/codes/demo-penal/outline?*",temporary_failure)
             code_requests=[]
             page.on("request",lambda req: code_requests.append(req.url)
                     if "/api/v1/codes/demo-penal/tree" in req.url else None)
