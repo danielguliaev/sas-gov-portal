@@ -10,18 +10,17 @@ set "ENV_DIR=%CD%\.venv-portal"
 set "ENV_PY=%ENV_DIR%\Scripts\python.exe"
 set "SITE_URL=http://127.0.0.1:8001/senate"
 
-echo Updating Senate branch...
-git pull --ff-only origin feat/senate-portal
-if errorlevel 1 echo Update failed. Starting the current local version.
-
 if not exist "%ENV_PY%" (
   py -3.12 -m venv "%ENV_DIR%"
   if errorlevel 1 py -3.11 -m venv "%ENV_DIR%"
   if errorlevel 1 goto python_error
 )
 
-"%ENV_PY%" -m pip install --disable-pip-version-check -e .
-if errorlevel 1 goto install_error
+"%ENV_PY%" -c "import fastapi, uvicorn, bleach, jwt, reportlab, tzdata" >nul 2>&1
+if errorlevel 1 (
+  "%ENV_PY%" -m pip install --disable-pip-version-check -e .
+  if errorlevel 1 goto install_error
+)
 
 powershell.exe -NoProfile -Command "try {$r=Invoke-RestMethod -Uri 'http://127.0.0.1:8001/health' -TimeoutSec 2; if($r.status -eq 'ok'){exit 0}}catch{};exit 1" >nul 2>&1
 if not errorlevel 1 (

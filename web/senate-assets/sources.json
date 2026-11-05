@@ -1,0 +1,109 @@
+{
+  "retrieved_at": "2026-11-05",
+  "reference": "https://www.senate.ca.gov",
+  "note": "Architectural reference imagery. Session photograph depicts California, not a San Andreas proceeding. No endorsement implied. Review reuse terms before public publication.",
+  "assets": [
+    {
+      "file": "background.jpg",
+      "source": "https://www.senate.ca.gov/sites/senate.ca.gov/themes/custom/senatemigrationtheme/images/site-background.jpg",
+      "bytes": 195221,
+      "sha256": "c59a5ccb2ad7b039ce6e0f60688c17631d47ca9fc72244ecbf1afa617c708057"
+    },
+    {
+      "file": "chamber.jpg",
+      "source": "https://www.senate.ca.gov/sites/senate.ca.gov/files/2024-03/senate-panoramic_0.jpg",
+      "bytes": 155543,
+      "sha256": "f0dc318658da8d69b8ef397086348d4f98d7ce3989958146e1886cd0ddb5cda0"
+    },
+    {
+      "file": "session.webp",
+      "source": "https://www.senate.ca.gov/sites/senate.ca.gov/files/styles/medium_slider/public/limon_swearing_01-05-26-lh-99.jpg.webp?itok=yMKyWiaJ",
+      "bytes": 17128,
+      "sha256": "bcaf3a399651500938c8974602662a85e5f6d2871bb64c0dfb5d19b3437992ff"
+    },
+    {
+      "file": "capitol.jpg",
+      "source": "https://www.senate.ca.gov/sites/senate.ca.gov/themes/custom/senatemigrationtheme/images/capitol.jpg",
+      "bytes": 13026,
+      "sha256": "93a5d991e595f0af0dd4a200fff6d15e7b7d8649a5fe14908fb404e347c808ee"
+    },
+    {
+      "file": "dome.jpg",
+      "source": "https://www.senate.ca.gov/sites/senate.ca.gov/themes/custom/senatemigrationtheme/images/capdome-lrg.jpg",
+      "bytes": 64947,
+      "sha256": "57ec6de772c2c533a94a484e765005ee4a1f9f0c96d0e0e639381966bb1889f4"
+    },
+    {
+      "file": "kids.jpg",
+      "source": "https://www.senate.ca.gov/sites/senate.ca.gov/themes/custom/senatemigrationtheme/images/kids-corner.jpg",
+      "bytes": 10930,
+      "sha256": "f6802561eab9b6eb292acca0bfd1edf3453f5ca5dd853aa8bf7c970a486f45f9"
+    },
+    {
+      "file": "quick-agenda.jpg",
+      "source": "https://www.senate.ca.gov/sites/senate.ca.gov/files/inline-images/daily-file_0.jpg",
+      "bytes": 3506,
+      "sha256": "a1df7849c413a8055fb0431146a729d845713fc163d3c11639bb96c02b6aede3"
+    },
+    {
+      "file": "quick-bills.jpg",
+      "source": "https://www.senate.ca.gov/sites/senate.ca.gov/files/inline-images/legislation_0.jpg",
+      "bytes": 3358,
+      "sha256": "f36202dfec50abb6e8a479ae776a5851578b83f10b4afa239bd945427f7b49e1"
+    },
+    {
+      "file": "quick-committees.jpg",
+      "source": "https://www.senate.ca.gov/sites/senate.ca.gov/files/inline-images/oversight-hearing_0.jpg",
+      "bytes": 4059,
+      "sha256": "4ca427bbd66e17a8e87b3adf94d803e79a4fb220d867b0885f37674629038a5b"
+    },
+    {
+      "file": "quick-senators.jpg",
+      "source": "https://www.senate.ca.gov/sites/senate.ca.gov/files/inline-images/find-senator_0.jpg",
+      "bytes": 3603,
+      "sha256": "9aa949782c5ac72f8328cb04177369b732ef9d18bb27bd569e18c72e93856fd4"
+    },
+    {
+      "file": "quick-library.jpg",
+      "source": "https://www.senate.ca.gov/sites/senate.ca.gov/files/inline-images/vote.jpg",
+      "bytes": 3065,
+      "sha256": "1483e3f39b2ce687cb47c4d30d0e6af825357584957157947cd25abe52582437"
+    },
+    {
+      "file": "opensans.woff2",
+      "source": "https://www.senate.ca.gov/sites/senate.ca.gov/themes/custom/senatemigrationtheme/fonts/Open%20Sans%20Regular.woff2",
+      "bytes": 16368,
+      "sha256": "5ed200eb4abe3076232ba8f1a8af69ee4aaddc72c02ccfcd0178a01af42b4043"
+    },
+    {
+      "file": "opensans-bold.woff2",
+      "source": "https://www.senate.ca.gov/sites/senate.ca.gov/themes/custom/senatemigrationtheme/fonts/Open%20Sans%20Bold.woff2",
+      "bytes": 16200,
+      "sha256": "156c8f3e5ee77142de3c7bc4b37744ef2ab4c033ff9b77413ba538d86f183b5f"
+    },
+    {
+      "file": "lora.woff2",
+      "source": "https://www.senate.ca.gov/sites/senate.ca.gov/themes/custom/senatemigrationtheme/fonts/Lora%20Regular.woff2",
+      "bytes": 28228,
+      "sha256": "e526afbf6dff6530618d0dd801136af520c06ff478f629e9c7ec000e1c4e55f5"
+    },
+    {
+      "file": "lora-bold.woff2",
+      "source": "https://www.senate.ca.gov/sites/senate.ca.gov/themes/custom/senatemigrationtheme/fonts/Lora%20Bold.woff2",
+      "bytes": 28960,
+      "sha256": "7bbebdcda282509cfee2bb8eef7601d7878498bb00a3d8c4a5b8a643a43b3f48"
+    },
+    {
+      "file": "NotoSans-Regular.ttf",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/main/hinted/ttf/NotoSans/NotoSans-Regular.ttf",
+      "bytes": 569208,
+      "sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5"
+    },
+    {
+      "file": "NotoSans-LICENSE.txt",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/main/LICENSE",
+      "bytes": 4377,
+      "sha256": "0dab92d0544f7b233403f14b84a663bdbfa746982eda629e7f4f9ffe1b036feb"
+    }
+  ]
+}

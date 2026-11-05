@@ -13,12 +13,22 @@ from app.editor import _check_lock, _notify_favorites
 router = APIRouter()
 
 
+def _legacy_bill_only(c, bill_id):
+    # The legacy demonstration API must not bypass Senate ownership or voting.
+    if (maybe(c, "SELECT bill_id FROM senate_bill_meta WHERE bill_id=?", (bill_id,)) or
+            maybe(c, "SELECT bill_id FROM senate_elections WHERE bill_id=?", (bill_id,))):
+        fail(409, "SENATE_WORKFLOW_REQUIRED", "Используйте раздел Сената для работы с этим проектом.")
+
+
 @router.get("/senate/dashboard")
 def senate_dashboard(current=Depends(actor)):
     with read_db() as c:
         setting = one(c, "SELECT setting_value FROM senate_settings WHERE setting_key='committee_review_days'")
         committees = allrows(c, "SELECT id,name,description,active FROM senate_committees ORDER BY name")
-        bills = allrows(c, "SELECT id,title,author_id,status,created_at FROM bills ORDER BY created_at DESC LIMIT 100")
+        bills = allrows(c, """SELECT id,title,author_id,status,created_at FROM bills
+            WHERE NOT EXISTS (SELECT 1 FROM senate_bill_meta m WHERE m.bill_id=bills.id)
+            AND NOT EXISTS (SELECT 1 FROM senate_elections e WHERE e.bill_id=bills.id)
+            ORDER BY created_at DESC LIMIT 100""")
         return {"committee_review_days": int(setting["setting_value"]), "committees": committees, "bills": bills}
 
 
@@ -225,12 +235,16 @@ def precedents(current=Depends(actor)):
 @router.get("/bills")
 def bills(current=Depends(actor)):
     with read_db() as c:
-        return allrows(c, "SELECT * FROM bills ORDER BY created_at DESC LIMIT 100")
+        return allrows(c, """SELECT * FROM bills WHERE NOT EXISTS
+            (SELECT 1 FROM senate_bill_meta m WHERE m.bill_id=bills.id)
+            AND NOT EXISTS (SELECT 1 FROM senate_elections e WHERE e.bill_id=bills.id)
+            ORDER BY created_at DESC LIMIT 100""")
 
 
 @router.get("/bills/{bill_id}")
 def bill(bill_id: str, current=Depends(actor)):
     with read_db() as c:
+        _legacy_bill_only(c, bill_id)
         result = one(c, "SELECT * FROM bills WHERE id=?", (bill_id,))
         result["revisions"] = allrows(c, """SELECT * FROM bill_revisions WHERE bill_id=?
                                           ORDER BY version DESC""", (bill_id,))
@@ -265,6 +279,7 @@ def new_bill(body: dict, current=Depends(actor)):
 def new_bill_revision(bill_id: str, body: dict, current=Depends(actor)):
     require(current, "legislator")
     with transaction() as c:
+        _legacy_bill_only(c, bill_id)
         b = one(c, "SELECT * FROM bills WHERE id=?", (bill_id,))
         if b["status"] in ("decision", "published"):
             fail(409, "BILL_FROZEN", "После решения нельзя переписывать проект.")
@@ -283,6 +298,7 @@ def new_bill_revision(bill_id: str, body: dict, current=Depends(actor)):
 def discuss_bill(bill_id: str, body: dict, current=Depends(actor)):
     require(current, "legislator")
     with transaction() as c:
+        _legacy_bill_only(c, bill_id)
         b = one(c, "SELECT * FROM bills WHERE id=?", (bill_id,))
         if b["status"] != "discussion":
             fail(409, "INVALID_BILL_STATE", "Обсуждение сейчас закрыто.")
@@ -297,6 +313,7 @@ def advance_bill(bill_id: str, body: dict, current=Depends(actor)):
     require(current, "legislator")
     next_status = body.get("status")
     with transaction() as c:
+        _legacy_bill_only(c, bill_id)
         b = one(c, "SELECT * FROM bills WHERE id=?", (bill_id,))
         if next_status not in BILL_TRANSITIONS.get(b["status"], []):
             fail(409, "INVALID_BILL_TRANSITION", "Переход состояния не разрешён регламентом.")
@@ -319,6 +336,7 @@ def advance_bill(bill_id: str, body: dict, current=Depends(actor)):
 def create_vote(bill_id: str, body: dict, current=Depends(actor)):
     require(current, "legislator")
     with transaction() as c:
+        _legacy_bill_only(c, bill_id)
         one(c, "SELECT id FROM bills WHERE id=? AND status='voting'", (bill_id,))
         session_id = body.get("session_id")
         if session_id:
@@ -336,6 +354,8 @@ def vote_choice(vote_id: str, body: dict, current=Depends(actor)):
     if choice not in ("yes", "no", "abstain"):
         fail(422, "INVALID_VOTE", "Укажите yes, no или abstain.")
     with transaction() as c:
+        legacy_vote = one(c, "SELECT bill_id FROM votes WHERE id=?", (vote_id,))
+        _legacy_bill_only(c, legacy_vote["bill_id"])
         one(c, "SELECT id FROM votes WHERE id=? AND result='pending'", (vote_id,))
         c.execute("""INSERT INTO vote_choices(vote_id,voter_id,choice) VALUES(?,?,?)
                      ON CONFLICT(vote_id,voter_id) DO UPDATE SET choice=excluded.choice""",
@@ -350,6 +370,8 @@ def close_vote(vote_id: str, body: dict, current=Depends(actor)):
     if result not in ("adopted", "rejected"):
         fail(422, "INVALID_VOTE_RESULT", "Укажите итоговый результат.")
     with transaction() as c:
+        legacy_vote = one(c, "SELECT bill_id FROM votes WHERE id=?", (vote_id,))
+        _legacy_bill_only(c, legacy_vote["bill_id"])
         vote = one(c, "SELECT * FROM votes WHERE id=? AND result='pending'", (vote_id,))
         c.execute("UPDATE votes SET result=? WHERE id=?", (result, vote_id))
         c.execute("INSERT INTO bill_events VALUES(?,?,?,?,?,?)",

@@ -14,7 +14,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from app.core import APP_ENV, error_handler, init_database, seed_demo, purge_old_audit_events, actor, require, read_db, transaction, uid, dumps, ts
-from app import legal, editor, portals, hierarchy, integration, auth, acts, outline
+from app import legal, editor, portals, hierarchy, integration, auth, acts, outline, senate, senate_sessions, senate_officers
 
 
 async def _audit_retention_worker():
@@ -24,6 +24,17 @@ async def _audit_retention_worker():
             purge_old_audit_events()
         except Exception:
             logging.getLogger("sas_portal.audit_retention").exception("Scheduled audit cleanup failed")
+
+
+async def _senate_deadline_worker():
+    while True:
+        try:
+            with transaction() as c:
+                senate.process_deadlines(c)
+                senate_sessions.finalize_due_sessions(c)
+        except Exception:
+            logging.getLogger("sas_portal.senate").exception("Senate deadline processing failed")
+        await asyncio.sleep(30)
 
 
 @asynccontextmanager
@@ -37,12 +48,18 @@ async def lifespan(_app):
         import_part_i(apply=True)
     purge_old_audit_events()
     retention_task = asyncio.create_task(_audit_retention_worker())
+    senate_task = asyncio.create_task(_senate_deadline_worker())
     try:
         yield
     finally:
         retention_task.cancel()
+        senate_task.cancel()
         try:
             await retention_task
+        except asyncio.CancelledError:
+            pass
+        try:
+            await senate_task
         except asyncio.CancelledError:
             pass
 
@@ -170,6 +187,9 @@ app.include_router(portals.router, prefix="/api/v1")
 app.include_router(integration.router, prefix="/api/v1")
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(acts.router, prefix="/api/v1")
+app.include_router(senate.router, prefix="/api/v1")
+app.include_router(senate_sessions.router, prefix="/api/v1")
+app.include_router(senate_officers.router, prefix="/api/v1")
 
 WEB = Path(__file__).resolve().parent.parent / "web"
 app.mount("/static", StaticFiles(directory=WEB), name="static")

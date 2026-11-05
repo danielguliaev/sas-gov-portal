@@ -499,6 +499,29 @@ def init_database():
             except Exception:
                 c.rollback()
                 raise
+        for version, filename in ((8, "008_senate_portal.sql"), (9, "009_senate_sessions.sql"),
+                                  (10, "010_senate_officers.sql"), (11, "011_senate_committee_agendas.sql"),
+                                  (12, "012_senate_flag_definitions.sql")):
+            if c.execute("SELECT 1 FROM schema_migrations WHERE version=?", (version,)).fetchone():
+                continue
+            c.execute("BEGIN IMMEDIATE")
+            try:
+                pending = []
+                for line in (base / filename).read_text(encoding="utf-8-sig").splitlines():
+                    if line.lstrip().startswith("--"):
+                        continue
+                    pending.append(line)
+                    statement = "\n".join(pending).strip()
+                    if sqlite3.complete_statement(statement):
+                        c.execute(statement)
+                        pending = []
+                if "\n".join(pending).strip():
+                    raise ValueError("Незавершённая миграция " + filename)
+                c.execute("INSERT INTO schema_migrations(version) VALUES(?)", (version,))
+                c.commit()
+            except Exception:
+                c.rollback()
+                raise
         c.commit()
     finally:
         c.close()
@@ -513,7 +536,8 @@ def purge_old_audit_events():
     """
     with transaction() as c:
         result = c.execute("""DELETE FROM audit_events
-            WHERE datetime(created_at) < datetime('now', '-6 months')""")
+            WHERE datetime(created_at) < datetime('now', '-6 months')
+            AND action NOT LIKE 'senate.%'""")
         return result.rowcount
 
 

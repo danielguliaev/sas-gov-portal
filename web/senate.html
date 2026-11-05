@@ -1,20 +1,118 @@
 <!doctype html>
 <html lang="ru">
-<head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#173b65"><meta name="description" content="Портал Сената штата Сан-Андреас">
-  <title>Сенат штата Сан-Андреас</title><link rel="stylesheet" href="/static/senate.css">
-  <script defer src="/static/senate.js"></script>
-</head>
-<body><div class="topline">ШТАТ САН-АНДРЕАС <span>Официальный портал законодательной власти</span></div>
-<header><a class="seal" href="/senate" aria-label="Сенат">SA</a><a class="brand" href="/senate"><strong>Сенат штата</strong><small>САН-АНДРЕАС</small></a>
-<nav><a href="#agenda">Повестка</a><a href="#bills">Законопроекты</a><a href="#committees">Комитеты</a><a href="#senators">Сенаторы</a><a href="#archive">Архив</a></nav>
-<label class="role">Режим просмотра<select id="role"><option value="user">Читатель</option><option value="legislator">Сенатор</option><option value="superadmin">Суперадминистратор</option></select></label></header>
-<main><section class="hero"><div class="hero-copy"><p class="eyebrow">ЗАКОНОДАТЕЛЬНАЯ ВЛАСТЬ</p><h1>Работа Сената<br>открыта для всех</h1><p>Законопроекты, работа комитетов и решения пленарных заседаний в одном месте.</p><a class="primary" href="#bills">Перейти к законопроектам <span>→</span></a></div><div class="hero-art"><img src="/static/senate-seal.png" alt="Герб Сената штата Сан-Андреас" onerror="this.style.display='none'"><div class="art-caption">СЕНАТ<br><small>ШТАТ САН-АНДРЕАС</small></div></div></section>
-<section class="notice"><span class="live-dot"></span><div><b>Законодательный процесс</b><p>Следите за ходом проектов и опубликованными решениями Сената.</p></div><a href="#agenda">О заседаниях →</a></section>
-<section id="agenda" class="section"><div class="section-head"><div><p class="eyebrow">НА ЭТОЙ НЕДЕЛЕ</p><h2>Повестка Сената</h2></div><a href="#archive">Все заседания →</a></div><div class="empty-card"><span class="calendar">▦</span><div><b>Ближайшее заседание не назначено</b><p>Опубликованные повестки и результаты появятся здесь.</p></div></div></section>
-<section id="bills" class="section"><div class="section-head"><div><p class="eyebrow">ЗАКОНОДАТЕЛЬНЫЙ ПРОЦЕСС</p><h2>Законопроекты</h2></div><button id="newBill" class="outline" hidden>＋ Новый проект</button></div><div id="billList" class="bill-list"></div></section>
-<section class="cards" id="committees"><a class="info-card" href="#committees"><span>01 / КОМИТЕТЫ</span><h3>Работа комитетов</h3><p>Материалы рассмотрений, рекомендации консультантов и решения председателей.</p><b>Открыть раздел →</b></a><a class="info-card" id="senators" href="#senators"><span>02 / СОСТАВ СЕНАТА</span><h3>Сенаторы штата</h3><p>Состав Сената и публичные контактные сведения представителей.</p><b>Открыть раздел →</b></a><a class="info-card" id="archive" href="#archive"><span>03 / ДОКУМЕНТЫ</span><h3>Архив Сената</h3><p>Поданные проекты, редакции, повестки и результаты рассмотрения.</p><b>Перейти в архив →</b></a></section>
-<section id="adminPanel" class="admin" hidden><div><p class="eyebrow">НАСТРОЙКИ СИСТЕМЫ</p><h2>Панель суперадминистратора</h2><p>Срок рассмотрения комитетом при отсутствии отчёта или решения.</p></div><label>Календарных дней<input id="reviewDays" type="number" min="1" max="365"></label><button id="saveDays" class="primary">Сохранить срок</button><span id="saveStatus" role="status"></span></section></main>
-<footer><b>Сенат штата Сан-Андреас</b><span>Официальные материалы законодательного органа</span><a href="/">Правовая библиотека ↗</a></footer>
-</body></html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#a60920" />
+    <meta
+      name="description"
+      content="Сенат штата Сан-Андреас: проекты, комитеты, повестки и открытые результаты голосований."
+    />
+    <title>Сенат штата Сан-Андреас</title>
+    <link rel="stylesheet" href="/static/senate.css" />
+    <script defer src="/static/senate.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#content">К содержанию</a>
+    <div class="site-shell">
+      <div class="utility-bar">
+        <a href="#sessions">Заседания</a><a href="#archive">Архив документов</a
+        ><a href="#about">Капитолий</a><a href="/">Правовая библиотека</a>
+        <div class="account">
+          <button
+            id="accountButton"
+            type="button"
+            aria-expanded="false"
+            aria-controls="accountMenu"
+          >
+            Вход
+          </button>
+          <div id="accountMenu" class="account-menu" hidden></div>
+        </div>
+        <form id="siteSearch" role="search">
+          <label class="visually-hidden" for="globalSearch"
+            >Поиск проектов</label
+          ><input
+            id="globalSearch"
+            name="q"
+            placeholder="Поиск по сайту…"
+            type="search"
+          /><button aria-label="Найти" type="submit">⌕</button>
+        </form>
+      </div>
+      <header class="masthead">
+        <a href="#home" class="brand"
+          ><img
+            src="/static/senate-assets/seal.png"
+            alt="Печать Сената штата Сан-Андреас"
+            width="58"
+            height="58"
+          /><span>СЕНАТ ШТАТА САН-АНДРЕАС</span></a
+        >
+      </header>
+      <nav class="main-nav" aria-label="Главное меню">
+        <button
+          id="menuToggle"
+          type="button"
+          aria-expanded="false"
+          aria-controls="navItems"
+        >
+          Меню <span>☰</span>
+        </button>
+        <ul id="navItems">
+          <li><a href="#home">Главная</a></li>
+          <li><a href="#senators">Сенаторы</a></li>
+          <li><a href="#committees">Комитеты</a></li>
+          <li class="has-submenu">
+            <button aria-expanded="false" type="button">
+              Документы <span>▾</span>
+            </button>
+            <ul>
+              <li><a href="#bills">Проекты документов</a></li>
+              <li><a href="#sessions">Повестки заседаний</a></li>
+              <li><a href="/">Правовая библиотека</a></li>
+            </ul>
+          </li>
+          <li><a href="#news">Новости</a></li>
+          <li><a href="#about">О Сенате</a></li>
+          <li><a href="#archive">Архив</a></li>
+          <li><a href="#sessions">Календарь</a></li>
+        </ul>
+      </nav>
+      <div id="pageBanner" class="page-banner">
+        <img
+          src="/static/senate-assets/chamber.jpg"
+          alt="Панорама зала заседаний Сената Калифорнии, архитектурный образец портала"
+        />
+      </div>
+      <main id="content" tabindex="-1" aria-live="polite">
+        <p class="loading">Загрузка материалов Сената…</p>
+      </main>
+      <footer class="site-footer">
+        <img
+          src="/static/senate-assets/seal.png"
+          alt=""
+          width="26"
+          height="26"
+        />
+        <div>
+          <a href="#home">Главная</a><a href="#about">О портале</a
+          ><a href="#archive">Архив</a><a href="#senators">Контакты сенаторов</a
+          ><a href="#content">Наверх</a>
+        </div>
+        <span>Сенат штата Сан-Андреас · RP-проект</span>
+      </footer>
+    </div>
+    <dialog id="confirmation">
+      <form method="dialog">
+        <h2 id="confirmTitle">Подтверждение действия</h2>
+        <p id="confirmMessage"></p>
+        <div class="form-actions">
+          <button value="cancel" class="secondary">Отмена</button
+          ><button value="ok">Подтвердить</button>
+        </div>
+      </form>
+    </dialog>
+    <div id="toast" role="status" hidden></div>
+  </body>
+</html>
