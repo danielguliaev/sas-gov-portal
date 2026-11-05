@@ -42,8 +42,8 @@ function wbSelectCat(categories,id,blank){
     return adminSelect(categories.map(c=>[c.name,c.id]),id,blank||"Любая категория");
 }
 async function adminHierarchyWorkbench(area){
-    const section=adminSection("Структура кодексов",
-        "Создавайте уровни, меняйте расположение разделов и управляйте их порядком — по одному действию за раз.");
+    const section=adminSection("Иерархия кодекса",
+        "Здесь определяется, как устроен кодекс: части, разделы и главы. Можно изменить вложенность и порядок, не меняя текст статей.");
     section.classList.add("admin-hierarchy-workbench");
     const select=wbSelectTo(allCodes,new URLSearchParams(location.search).get("code")||allCodes[0]?.id);
     select.id="hierarchyCodeSelect";
@@ -72,9 +72,9 @@ async function adminHierarchyWorkbench(area){
     const navigation=el("aside","wb-nav");
     const content=el("div","wb-content");
     const tabs=[
-        ["levels","Уровни структуры"],
-        ["move","Переместить раздел"],
-        ["order","Порядок разделов"]
+        ["levels","Какие есть уровни"],
+        ["move","Куда входит раздел"],
+        ["order","В каком порядке показывать"]
     ];
     let chosen=new URLSearchParams(location.search).get("view")||"levels";
     if(!tabs.some(x=>x[0]===chosen))chosen="levels";
@@ -348,8 +348,8 @@ async function adminHierarchyWorkbench(area){
     activate(chosen);
 }
 async function adminRelationsWorkbench(area){
-    const section=adminSection("Юридические связи",
-        "Правила определяют, какие статьи могут быть связаны. Назначение и восстановление связей проходят отдельную проверку.");
+    const section=adminSection("Связи между статьями",
+        "Свяжите нормы, которые дополняют или уточняют друг друга. Можно посмотреть существующие связи, изменить их правила и восстановить отключённые.");
     section.classList.add("admin-relations-workbench");
     const [types,categories]=await Promise.all([api("/relation-types"),api("/categories")]);
     const categoryById=new Map(categories.map(c=>[c.id,c.name]));
@@ -358,7 +358,7 @@ async function adminRelationsWorkbench(area){
     count.append(wbStatus(types.length+" видов связей"),
         wbStatus("Проверка совместимости на сервере"));
     section.append(count);
-    const tabs=[["rules","Виды и правила"],["assign","Связать статьи"],["review","Просмотр и восстановление"]];
+    const tabs=[["rules","Типы связей"],["assign","Добавить связь"],["review","Связи статьи"]];
     const outer=el("div","wb-layout");
     const sidebar=el("aside","wb-nav");
     const content=el("div","wb-content");
