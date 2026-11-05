@@ -1,5 +1,6 @@
 """ASGI entrypoint; all legal documents require API authentication."""
 from contextlib import asynccontextmanager
+import asyncio
 from collections import defaultdict, deque
 from time import perf_counter
 import logging
@@ -12,15 +13,38 @@ from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
-from app.core import APP_ENV, error_handler, init_database, seed_demo, actor, require, read_db, transaction, uid, dumps, ts
+from app.core import APP_ENV, error_handler, init_database, seed_demo, purge_old_audit_events, actor, require, read_db, transaction, uid, dumps, ts
 from app import legal, editor, portals, hierarchy, integration, auth, acts
+
+
+async def _audit_retention_worker():
+    while True:
+        await asyncio.sleep(24 * 60 * 60)
+        try:
+            purge_old_audit_events()
+        except Exception:
+            logging.getLogger("sas_portal.audit_retention").exception("Scheduled audit cleanup failed")
 
 
 @asynccontextmanager
 async def lifespan(_app):
     init_database()
     seed_demo(include_sample=APP_ENV != "production")
-    yield
+    # An explicit local-development option; production imports require an
+    # operator's intentional CLI action and legal classification review.
+    if APP_ENV != "production" and os.getenv("AUTO_IMPORT_PENAL_PART_I") == "1":
+        from scripts.import_penal_part_i import import_part_i
+        import_part_i(apply=True)
+    purge_old_audit_events()
+    retention_task = asyncio.create_task(_audit_retention_worker())
+    try:
+        yield
+    finally:
+        retention_task.cancel()
+        try:
+            await retention_task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(
