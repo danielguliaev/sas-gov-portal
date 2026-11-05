@@ -12,6 +12,11 @@ def test_portal_page_and_assets_are_served(client):
         assert 'lang="ru"' in response.text
         assert 'href="/static/laws.css"' in response.text
         assert 'id="navBackdrop"' in response.text
+        assert 'id="legalResourcesMenu"' in response.text
+        assert 'id="otherResourcesMenu"' in response.text
+        assert 'id="globalNav"' in response.text
+        assert 'id="otherResourcesNav"' in response.text
+        assert 'СОДЕРЖАНИЕ КОДЕКСА' in response.text
         assert 'href="/laws"' in response.text
     style = client.get("/static/laws.css")
     assert style.status_code == 200
@@ -20,6 +25,8 @@ def test_portal_page_and_assets_are_served(client):
     assert script.status_code == 200
     assert "async function lawCatalog(" in script.text
     assert "async function searchPage(" in script.text
+    assert '"article-number", "§ " + a.number' in script.text
+    assert 'otherResourcesNav.replaceChildren()' in script.text
 
 
 def test_codes_counts_and_overview_show_only_active_materials(client, headers, admin):

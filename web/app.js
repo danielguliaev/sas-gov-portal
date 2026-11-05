@@ -4,6 +4,7 @@ const main = document.getElementById("main");
 const sidebar = document.getElementById("sidebar");
 const layout = document.getElementById("layout");
 const nav = document.getElementById("globalNav");
+const otherResourcesNav = document.getElementById("otherResourcesNav");
 const codeNav = document.getElementById("codeNav");
 const roleSelect = document.getElementById("roleSelect");
 const dialog = document.getElementById("editorDialog");
@@ -140,10 +141,24 @@ window.addEventListener("scroll", () => {
     scrollSavePending = true;
     requestAnimationFrame(() => { scrollSavePending = false; storePosition(); });
 }, {passive:true});
+function closeHeaderDropdowns() {
+    document.querySelectorAll(".header-dropdown[open]").forEach(menu => { menu.open = false; });
+}
 function closeNavigation() {
     layout.classList.remove("menu-open");
     document.getElementById("menuToggle").setAttribute("aria-expanded", "false");
+    closeHeaderDropdowns();
 }
+document.querySelectorAll(".header-dropdown").forEach(dropdown => {
+    dropdown.addEventListener("toggle", () => {
+        if (dropdown.open) document.querySelectorAll(".header-dropdown").forEach(other => {
+            if (other !== dropdown) other.open = false;
+        });
+    });
+});
+document.addEventListener("click", event => {
+    if (!event.target.closest(".header-dropdown")) closeHeaderDropdowns();
+});
 const sidebarToggle=document.getElementById("sidebarToggle");
 function setSidebarCollapsed(collapsed) {
     layout.classList.toggle("sidebar-collapsed",Boolean(collapsed));
@@ -182,6 +197,12 @@ document.getElementById("menuToggle").addEventListener("click", () => {
 });
 document.getElementById("navBackdrop").addEventListener("click", closeNavigation);
 document.addEventListener("keydown", event => {
+    const openHeaderDropdown = document.querySelector(".header-dropdown[open]");
+    if (event.key === "Escape" && openHeaderDropdown) {
+        openHeaderDropdown.open = false;
+        openHeaderDropdown.querySelector("summary").focus();
+        return;
+    }
     if (event.key === "Escape" && layout.classList.contains("menu-open")) {
         closeNavigation();
         document.getElementById("menuToggle").focus();
@@ -249,10 +270,9 @@ function refreshGlobalNav() {
     if (isLawyer()) nav.append(navItem("Моё избранное", "/favorites", "☆"));
     if (isAdmin()) { nav.append(navItem("Управление библиотекой", "/admin", "⚙"));
         nav.append(navItem("Редакционная проверка", "/reviews", "✓")); }
-    nav.append(el("div", "sidebar-separator"));
-    nav.append(el("div", "sidebar-heading", "ПРОЧИЕ РЕСУРСЫ"));
+    otherResourcesNav.replaceChildren();
     allPortals.filter(p => p.id !== "library").forEach(p => {
-        nav.append(el("div", "nav-static-resource", p.name));
+        otherResourcesNav.append(el("div", "nav-static-resource", p.name));
     });
     document.querySelectorAll(".header-nav a[data-link]").forEach(link => {
         if (link.getAttribute("href") === location.pathname) link.setAttribute("aria-current", "page");
@@ -731,7 +751,7 @@ function createArticleCard(a) {
     card.dataset.articleId = a.id;
     const top = el("div", "article-top");
     const titles = el("div");
-    titles.append(el("div", "article-number", "СТАТЬЯ " + a.number), el("h2", "", displayLegalTitle(a.title)));
+    titles.append(el("div", "article-number", "§ " + a.number), el("h2", "", displayLegalTitle(a.title)));
     top.append(titles);
 
     card.append(top);

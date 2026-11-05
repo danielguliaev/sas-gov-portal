@@ -57,7 +57,10 @@ def test_legislation_portal_desktop_and_mobile(tmp_path):
             captures.mkdir(exist_ok=True)
             page.screenshot(path=str(captures / "law-portal-desktop.png"), full_page=True)
 
-            page.locator(".header-nav a[href='/laws']").click()
+            page.locator("#legalResourcesMenu summary").click()
+            expect(page.locator("#globalNav a[href='/laws']")).to_be_visible()
+            page.locator("#globalNav a[href='/laws']").click()
+            expect(page.locator("#legalResourcesMenu")).not_to_have_attribute("open", "")
             expect(page.locator(".catalog-grid .law-code-card")).to_have_count(1)
             expect(page.locator(".catalog-summary")).to_contain_text("Найдено кодексов: 1")
             page.locator(".law-code-card").first.click()
@@ -65,6 +68,15 @@ def test_legislation_portal_desktop_and_mobile(tmp_path):
             page.locator(".section-tile").first.click()
             expect(page.locator(".article-card")).to_have_count(1)
             expect(page.locator(".article-card")).to_contain_text("Пример статьи")
+            expect(page.locator(".article-card .article-number").first).to_have_text("§ 1")
+            page.locator("#otherResourcesMenu summary").click()
+            expect(page.locator("#otherResourcesNav")).to_contain_text("Правительство")
+            expect(page.locator("#otherResourcesNav a")).to_have_count(0)
+            page.keyboard.press("Escape")
+            expect(page.locator("#otherResourcesMenu")).not_to_have_attribute("open", "")
+            page.set_viewport_size({"width":1920,"height":900})
+            assert abs(page.locator("#sidebar").bounding_box()["x"]) <= 1
+            page.set_viewport_size({"width":1440,"height":900})
             expect(page.locator("#articleIndex .article-index-link")).to_have_count(1)
             # A section click must not retain the old scroll position from the previous screen.
             assert page.evaluate("window.scrollY") < 20
@@ -84,6 +96,10 @@ def test_legislation_portal_desktop_and_mobile(tmp_path):
             page.set_viewport_size({"width":390, "height":820})
             page.locator("a.brand").click()
             expect(page.locator(".law-hero")).to_be_visible()
+            expect(page.locator("#legalResourcesMenu summary")).to_be_visible()
+            page.locator("#legalResourcesMenu summary").click()
+            expect(page.locator("#globalNav a[href='/search']")).to_be_visible()
+            page.keyboard.press("Escape")
             page.locator("#menuToggle").click()
             expect(page.locator("#layout")).to_have_class("layout menu-open")
             expect(page.locator("#menuToggle")).to_have_attribute("aria-expanded", "true")

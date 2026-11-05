@@ -10,7 +10,7 @@ a{color:#1d557e;text-decoration:none}a:hover{text-decoration:underline}button,se
 .header-actions{display:flex;align-items:center;gap:12px}.header-label{font-size:.7rem;color:#c9d6e5;white-space:nowrap}.header-actions select{max-width:190px;padding:8px 10px;color:#fff;background:#254361;border:1px solid #57708a;border-radius:4px;font-size:.82rem}
 .icon-button{width:38px;height:38px;display:grid;place-items:center;border:1px solid #506680;background:transparent;color:inherit;border-radius:5px;font-size:1.2rem}.icon-button:hover{background:rgba(255,255,255,.12)}.menu-toggle{display:none}
 .demo-banner{background:#f9f1df;border-bottom:1px solid #e5d4a9;color:#6a5635;font-size:.78rem;text-align:center;padding:8px 20px;font-weight:600}
-.layout{display:grid;grid-template-columns:292px minmax(0,1fr);max-width:1540px;margin:auto;min-height:calc(100vh - 128px)}
+.layout{display:grid;grid-template-columns:292px minmax(0,1fr);width:100%;margin:0;min-height:calc(100vh - 128px)}
 .sidebar{position:sticky;top:78px;align-self:start;height:calc(100vh - 78px);overflow:auto;overscroll-behavior:contain;background:#fff;border-right:1px solid var(--line);padding:28px 15px 36px 20px;scrollbar-color:#bec9d5 transparent;z-index:20}
 .sidebar-heading{font-size:.67rem;font-weight:800;letter-spacing:.15em;color:#8290a0;padding:2px 13px 17px}
 .sidebar nav{display:grid;gap:3px}.nav-item{width:100%;display:flex;align-items:center;gap:9px;text-align:left;border:0;background:transparent;color:#3a5169;border-radius:5px;padding:10px 12px;font-size:.87rem;font-weight:650}

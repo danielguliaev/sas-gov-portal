@@ -26,10 +26,15 @@
       <a class="brand" href="/" data-link>
 <span class="brand-text"><strong>Правовая библиотека</strong><small>штата Сан Андреас</small></span>
       </a>
-      <nav class="header-nav" aria-label="Разделы правового портала">
-        <a href="/" data-link>Обзор</a>
-        <a href="/laws" data-link>Каталог законов</a>
-        <a href="/search" data-link>Поиск</a>
+      <nav class="header-nav" aria-label="Навигация по ресурсам">
+        <details class="header-dropdown" id="legalResourcesMenu">
+          <summary>Правовые ресурсы</summary>
+          <div class="header-dropdown-panel" id="globalNav" aria-label="Правовые ресурсы"></div>
+        </details>
+        <details class="header-dropdown" id="otherResourcesMenu">
+          <summary>Прочие ресурсы</summary>
+          <div class="header-dropdown-panel" id="otherResourcesNav" aria-label="Прочие государственные ресурсы"></div>
+        </details>
       </nav>
       <div class="header-actions">
         <label class="header-label" for="roleSelect">Роль пользователя</label>
@@ -46,13 +51,12 @@
   <div class="layout" id="layout">
     <aside class="sidebar" id="sidebar" aria-label="Навигация по законодательству">
       <div class="sidebar-header">
-        <div class="sidebar-heading">ПРАВОВЫЕ РЕСУРСЫ</div>
+        <div class="sidebar-heading">СОДЕРЖАНИЕ КОДЕКСА</div>
         <button id="sidebarToggle" class="sidebar-toggle" type="button"
-                aria-label="Свернуть боковую панель" aria-controls="globalNav codeNav"
+                aria-label="Свернуть боковую панель" aria-controls="codeNav"
                 aria-expanded="true" title="Свернуть боковую панель">❮</button>
       </div>
-      <nav id="globalNav" aria-label="Основная навигация"></nav>
-      <div id="codeNav"></div>
+      <nav id="codeNav" aria-label="Содержание открытого кодекса"></nav>
       <div class="sidebar-bottom">
         <label for="fontScale">Размер шрифта чтения</label>
         <input id="fontScale" type="range" min="75" max="175" step="5" value="100">
