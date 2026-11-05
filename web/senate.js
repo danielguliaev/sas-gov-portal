@@ -272,7 +272,7 @@
       btn = document.querySelector("#accountButton");
     btn.textContent = state.me ? "Кабинет" : "Вход";
     let html = state.me
-      ? `<p><b>${esc(state.me.profile?.name || state.me.id)}</b></p><a href="#cabinet">Мой кабинет</a><a href="#elections">Выбор Pro Tempore</a>${isAdmin() ? '<a href="#admin">Администрирование</a><a href="/accounts">Тестовые аккаунты</a>' : ""}`
+      ? `<p><b>${esc(state.me.profile?.name || state.me.id)}</b></p><a href="#cabinet">Мой кабинет</a><a href="#elections">Выбор Pro Tempore</a>${isAdmin() ? '<a href="#admin">Администрирование</a>' + (state.auth?.mode === 'demo' ? '<a href="/accounts">Тестовые аккаунты</a>' : '') : ""}`
       : "<p>Вход для участников Сената</p>";
     if (state.auth?.mode === "demo")
       html += `<label for="demoRole">Локальная демонстрация<select id="demoRole"><option value="">Гость</option>${[
