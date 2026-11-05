@@ -255,14 +255,14 @@ def test_legislation_portal_desktop_and_mobile(tmp_path):
 
             # Archive operations show a server preview and require separate confirmation.
             page.goto(base_url + "/admin/archive?article=" + root_article["id"])
-            expect(page.locator(".admin-panel")).to_contain_text("Архивирование и восстановление")
-            page.get_by_role("button", name="Проверить состав архива").click()
+            expect(page.locator(".admin-panel")).to_contain_text("Архив статей и разделов")
+            page.get_by_role("button", name="Посмотреть, что попадёт в архив").click()
             expect(page.locator(".admin-preview")).to_contain_text(
-                "Предварительный просмотр архивирования")
+                "Что будет перемещено в архив")
             page.on("dialog", lambda dialog: dialog.accept())
             page.get_by_role("button", name="Подтвердить архивирование").click()
-            expect(page.locator(".admin-list")).to_contain_text("Операция")
-            page.get_by_role("button", name="Просмотреть восстановление").first.click()
+            expect(page.locator(".admin-list")).to_contain_text("Архив от")
+            page.get_by_role("button", name="Восстановить материалы").first.click()
             expect(page.locator(".admin-preview")).to_contain_text("Восстановление")
             page.get_by_role("button", name="Восстановить").click()
             # The restore handler is async. Wait for the server state, not a heading
@@ -275,7 +275,7 @@ def test_legislation_portal_desktop_and_mobile(tmp_path):
                 time.sleep(.05)
             else:
                 raise AssertionError("Archive restore did not complete")
-            expect(page.locator(".admin-panel")).to_contain_text("Архивирование и восстановление")
+            expect(page.locator(".admin-panel")).to_contain_text("Архив статей и разделов")
 
             # Lawyer-only search exposes the complete filter surface.
             page.locator("#roleSelect").select_option("lawyer")

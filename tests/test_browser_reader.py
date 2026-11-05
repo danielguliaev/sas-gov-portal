@@ -119,10 +119,13 @@ def test_reader_retry_and_deep_article_link(tmp_path):
             else:
                 raise AssertionError("Reader did not reach target scroll position")
             saved=page.evaluate("window.scrollY")
-            # Avoid Playwright's implicit scroll-to-element: a real click on a
-            # visible card must preserve the reader's last viewport position.
-            page.locator(".article-card").nth(4).locator("a[href^='/articles/']").first.evaluate(
-                "(link) => link.click()")
+            # Use the real article index link; card actions now copy permalinks
+            # rather than containing a direct anchor. Avoid Playwright scrolling
+            # before clicking, so Back must restore the previous reading position.
+            target_link=page.locator(
+                "#articleIndex .article-index-link[data-article-id='"+created[3]+"']")
+            expect(target_link).to_have_count(1,timeout=10000)
+            target_link.evaluate("(link) => link.click()")
             expect(page).to_have_url(base+"/articles/"+created[3])
             expect(page.locator("#card-"+created[3])).to_be_visible()
             page.go_back(wait_until="domcontentloaded")
