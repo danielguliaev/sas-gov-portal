@@ -67,7 +67,7 @@ def test_legislation_portal_desktop_and_mobile(tmp_path):
             # An empty root has no article heading or placeholder for readers.
             expect(page.locator(".section-tile")).to_have_count(1)
             expect(page.locator(".section-heading")).not_to_be_visible()
-            expect(page.locator(".eyebrow").first).to_have_text("PEN")
+            expect(page.locator(".eyebrow").first).to_have_text("PC")
             assert page.get_by_text("Структура документа").count()==0
             assert page.get_by_text("Содержание кодекса",exact=True).count()==0
             page.locator(".section-tile").first.click()

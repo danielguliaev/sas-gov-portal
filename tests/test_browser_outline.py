@@ -47,7 +47,7 @@ def test_mixed_outline_and_admin_reorder(tmp_path):
             expect(page.locator(".section-tile")).to_have_count(1)
             expect(page.locator(".section-heading")).not_to_be_visible()
             expect(page.locator(".reader-empty")).to_have_count(0)
-            expect(page.locator(".eyebrow").first).to_have_text("PEN")
+            expect(page.locator(".eyebrow").first).to_have_text("PC")
             assert page.get_by_text("Структура документа").count() == 0
 
             page.locator("#roleSelect").select_option("lawyer")
