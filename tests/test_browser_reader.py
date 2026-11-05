@@ -75,7 +75,7 @@ def test_reader_retry_and_deep_article_link(tmp_path):
                 "(nodes) => nodes.map(n => n.dataset.articleId)")
             page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
             expect(page.locator(".load-status")).to_contain_text(
-                "Не удалось загрузить статьи",timeout=10000)
+                "Не удалось загрузить содержание",timeout=10000)
             assert len(failed)==1
             # Failure does not delete or replace the 12 already rendered articles.
             assert page.locator(".article-card").evaluate_all(
