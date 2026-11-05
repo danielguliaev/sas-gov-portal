@@ -150,7 +150,8 @@ async function adminCodes(area) {
         if(!name)throw Error("Введите название кодекса.");
         if(!jurisdiction.value)throw Error("Выберите юрисдикцию.");
         const newCode=await api("/codes",{method:"POST",body:{
-            name,abbreviation,jurisdiction_id:jurisdiction.value,
+            name,abbreviation,description:codeDescription.value.trim(),
+            jurisdiction_id:jurisdiction.value,
             hierarchy_template:hierarchy.value,
             publication_issuer:publicationIssuer.value.trim(),
             publication_reference:publicationReference.value.trim(),
@@ -169,6 +170,11 @@ async function adminCodes(area) {
     nameField.id="newCodeName";
     const abbr=adminInput("","Например: CC, PC");
     abbr.name="abbreviation"; abbr.maxLength=40;
+    const codeDescription=el("textarea");
+    codeDescription.name="description";
+    codeDescription.rows=3;
+    codeDescription.maxLength=3000;
+    codeDescription.placeholder="Описание назначения, содержания и области действия кодекса";
     const jurisdiction=adminSelect(jurisdictions.map(j=>[j.name,j.id]),
         new URLSearchParams(location.search).get("jurisdiction") || "state");
     jurisdiction.name="jurisdiction_id";
@@ -181,7 +187,8 @@ async function adminCodes(area) {
     topFields.append(adminField("Название кодекса *",nameField),
         adminField("Краткое обозначение",abbr),
         adminField("Уровень законодательства *",jurisdiction));
-    form.form.prepend(topFields,adminField("Начальная структура",hierarchy));
+    form.form.prepend(topFields,adminField("Описание кодекса",codeDescription),
+                      adminField("Начальная структура",hierarchy));
     const publication=el("details","code-publication-fields");
     publication.append(el("summary","","Необязательно: сведения о публикации кодекса"));
     const publicationGrid=el("div","admin-create-grid");
@@ -235,12 +242,13 @@ async function adminCodes(area) {
             adminLink("Настроить иерархию","/admin/hierarchy?code="+c.id));
         item.append(actions);
         const meta=el("details","code-metadata-editor");
-        meta.append(el("summary","","Изменить название и сведения о публикации"));
+        meta.append(el("summary","","Изменить название, описание и сведения о публикации"));
         const edit=adminForm(async()=>{
             const nextName=rename.value.trim();
             if(!nextName)throw Error("Введите название кодекса.");
             await api("/codes/"+c.id,{method:"PATCH",body:{
                 name:nextName,abbreviation:shortName.value.trim(),
+                description:description.value.trim(),
                 publication_issuer:issuer.value.trim(),
                 publication_reference:reference.value.trim(),
                 published_at:date.value
@@ -255,6 +263,12 @@ async function adminCodes(area) {
         rename.maxLength=200;
         const shortName=adminInput(c.abbreviation||"","Краткое обозначение");
         shortName.maxLength=40;
+        const description=el("textarea");
+        description.name="description";
+        description.rows=4;
+        description.maxLength=3000;
+        description.value=c.description||"";
+        description.placeholder="Описание, показываемое на странице кодекса";
         const issuer=adminInput(c.publication_issuer||"","Издавший орган");
         issuer.name="publication_issuer";
         issuer.maxLength=200;
@@ -267,6 +281,7 @@ async function adminCodes(area) {
         const metadata=el("div","code-metadata-grid");
         metadata.append(adminField("Название",rename),
             adminField("Сокращение",shortName),
+            adminField("Описание кодекса",description),
             adminField("Издавший орган",issuer),
             adminField("Реквизиты публикации",reference),
             adminField("Дата публикации",date));

@@ -128,6 +128,12 @@
           <option value="">Непосредственно в кодексе (без раздела)</option>
         </select>
       </label>
+      <label id="articleInsertPlacementLabel">Положение новой статьи внутри выбранного уровня
+        <select name="insert_at" aria-label="Положение новой статьи">
+          <option value="">В конце (затем можно изменить порядок в управлении иерархией)</option>
+          <option value="0">В самом начале, перед всеми статьями и разделами</option>
+        </select>
+      </label>
       <div class="editor-mode">
         <button type="button" class="button ghost" id="toggleRichEditor">Визуальный редактор</button>
         <span id="editorModeStatus">Режим исходной разметки HTML</span>
