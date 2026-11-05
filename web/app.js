@@ -620,8 +620,8 @@ function renderCodeNav(code, selectedNode, directTarget) {
         const line=el("div","tree-entry");
         const selected=node.id===selectedNode;
         const type=treeData.types.find(t=>t.id===node.type_id);
-        const caption=(type?type.name+" ":node.type_name?node.type_name+" ":"")+
-            (node.number?node.number+" · ":"")+displayLegalTitle(node.title);
+        const caption=(node.number?(type?type.name+" ":node.type_name?node.type_name+" ":"")+node.number+" · ":"")+
+            displayLegalTitle(node.title);
         const link=el("a","nav-item",caption);
         link.href="/codes/"+code.id+"/nodes/"+node.id;
         link.dataset.link="";link.dataset.nodeId=node.id;
@@ -1804,7 +1804,7 @@ async function openEditor(article, codeId, nodeId) {
             if(labels.has(n.id))return labels.get(n.id);
             const parent=n.parent_id&&hierarchy.nodes.find(node=>node.id===n.parent_id);
             const type=hierarchy.types.find(t=>t.id===n.type_id);
-            const own=(type?type.name+" ":"")+n.number+" · "+displayLegalTitle(n.title);
+            const own=(n.number?(type?type.name+" ":"")+n.number+" · ":"")+displayLegalTitle(n.title);
             const label=parent?nodeLabel(parent)+" / "+own:own;
             labels.set(n.id,label);
             return label;
