@@ -86,3 +86,10 @@ dialog fieldset{border:1px solid #e1e8ed;margin:16px 0;padding:17px;border-radiu
 .annotation-entry{border-bottom:1px solid #e4eaf0;padding:10px 0;}
 .annotation-entry:last-child{border-bottom:0;}
 @media(max-width:700px){.article-card > .article-actions{margin-left:-5px;margin-right:-5px;}.article-card > .article-actions .button{font-size:.7rem;}}
+
+/* Evenly distributed actions without a sideways-scrolling toolbar. */
+.article-card > .article-actions{overflow:visible;display:flex;flex-wrap:nowrap;gap:6px;}
+.article-card > .article-actions > .button{flex:1 1 0;min-width:0;flex-shrink:1;padding:9px 5px;white-space:normal;text-align:center;line-height:1.3;}
+.article-card > .article-actions > .article-archive-action{flex:0 0 38px;}
+.annotation-quote{margin:10px 0;padding:8px 14px;border-left:3px solid #c6a66b;background:#f8fafc;color:#40556a;font-family:Georgia,serif;font-style:italic;}
+@media(max-width:700px){.article-card > .article-actions{flex-wrap:wrap;}.article-card > .article-actions > .button{flex:1 1 120px;}.article-card > .article-actions > .article-archive-action{flex:0 0 38px;}}
