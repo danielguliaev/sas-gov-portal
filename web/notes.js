@@ -4,7 +4,7 @@ function annotationRow(note) {
     const row=el("div","annotation-entry");
     row.append(el("blockquote","",note.quote),
         el("p","",note.note_text),
-        el("small","",friendlyDate(note.created_at)));
+        el("small","annotation-meta","Автор: "+(note.author_name||note.author_id||"Неизвестный пользователь")+" · "+new Intl.DateTimeFormat("en-US",{month:"2-digit",day:"2-digit",year:"numeric",timeZone:"UTC"}).format(new Date(note.created_at)).replaceAll("/",".")));
     return row;
 }
 async function renderRevisionAnnotations(articleId,revisionId,host){
@@ -18,10 +18,10 @@ async function renderRevisionAnnotations(articleId,revisionId,host){
         host.append(el("p","notice",error.message));
     }
 }
-function attachArticleAnnotations(card,article,textBlock) {
+function attachArticleAnnotations(card,article,textBlock,detailsHost) {
     if(!isLawyer() || !article.revision_id)return;
-    const panel=el("details","annotation-panel");
-    panel.append(el("summary","","Научные примечания к редакции"));
+    const panel=el("section","annotation-panel");
+    panel.append(el("h3","","Научные примечания к редакции"));
     const entries=el("div","annotation-list");
     const currentRevision=article.revision_id;
     let lastRange=null;
@@ -34,7 +34,7 @@ function attachArticleAnnotations(card,article,textBlock) {
     textBlock.addEventListener("mouseup",rememberSelection);
     textBlock.addEventListener("keyup",rememberSelection);
     const actions=el("div","article-actions");
-    const add=el("button","button subtle","Добавить примечание к выделению");
+    const add=el("button","button primary annotation-add","＋ Добавить примечание");
     add.type="button";
     add.onclick=async()=>{
         if(!lastRange) {
@@ -69,8 +69,6 @@ function attachArticleAnnotations(card,article,textBlock) {
     };
     actions.append(add);
     panel.append(actions,entries);
-    panel.addEventListener("toggle",()=>{
-        if(panel.open)renderRevisionAnnotations(article.id,currentRevision,entries);
-    });
-    card.append(panel);
+    renderRevisionAnnotations(article.id,currentRevision,entries);
+    (detailsHost||card).append(panel);
 }
