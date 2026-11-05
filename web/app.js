@@ -687,6 +687,42 @@ function highlightSidebar(articleId) {
         link.scrollIntoView({block:"nearest"});
     }
 }
+async function attachInlineRelationCreator(host,article) {
+    const add=el("button","button ghost relation-inline-toggle","＋ Добавить юридическую связь");
+    add.type="button";add.setAttribute("aria-expanded","false");
+    const panel=el("div","relation-inline-form");
+    panel.hidden=true;
+    add.onclick=async()=>{
+        panel.hidden=!panel.hidden;
+        add.setAttribute("aria-expanded",String(!panel.hidden));
+        if(panel.hidden||panel.dataset.ready)return;
+        panel.dataset.ready="true";
+        panel.append(el("p","muted","Выберите вид связи и найдите статью, с которой хотите связать текущую норму."));
+        try{
+            const types=await api("/relation-types");
+            if(!types.length){
+                const help=el("p","muted","Виды связей ещё не настроены.");
+                const link=el("a","","Настроить виды связей");
+                link.href="/admin/relations?view=rules";link.dataset.link="";
+                panel.append(help,link);return;
+            }
+            const picker=await adminArticleFinder("Связать со статьёй","");
+            const type=adminSelect(types.map(t=>[t.name,t.id]));
+            const form=adminForm(async()=>{
+                if(!picker.select.value)throw Error("Выберите статью из результатов поиска.");
+                if(picker.select.value===article.id)throw Error("Статья не может ссылаться на саму себя.");
+                await api("/relations",{method:"POST",body:{
+                    type_id:type.value,source_id:article.id,target_id:picker.select.value}});
+                notify("Юридическая связь добавлена.");
+                go(location.pathname+location.search);
+            });
+            form.save.textContent="Создать связь";
+            form.form.prepend(adminField("Как связаны статьи",type),picker.wrap);
+            panel.append(form.form);
+        }catch(error){panel.append(el("p","notice",error.message));}
+    };
+    host.append(add,panel);
+}
 function createArticleCard(a) {
     const card = el("article", "article-card");
     card.id = "card-" + a.id;
@@ -742,6 +778,7 @@ function createArticleCard(a) {
         }
     }).catch(() => {});
     card.append(relationBox);
+    if(isAdmin())attachInlineRelationCreator(relationBox,a);
     if(isLawyer())attachArticleAnnotations(card,a,textBlock,legalDetails);
     const actions = el("div", "article-actions");
     const open = el("button", "button ghost", "Постоянная ссылка");
