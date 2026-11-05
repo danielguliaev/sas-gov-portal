@@ -184,7 +184,7 @@ def create_type(code_id: str, body: dict, current=Depends(actor)):
         if type(level_order) is not int:
             fail(422, "INVALID_HIERARCHY", "Приоритет уровня должен быть целым.")
         number_format = body.get("number_format", "mixed")
-        if number_format not in ("mixed", "numeric", "roman", "alpha"):
+        if number_format not in ("mixed", "numeric", "roman", "alpha", "none"):
             fail(422, "INVALID_HIERARCHY", "Неверный формат номера.")
         type_id = uid()
         c.execute("""INSERT INTO hierarchy_types
@@ -198,8 +198,12 @@ def create_type(code_id: str, body: dict, current=Depends(actor)):
 
 def _number_for_type(number, typ):
     import re
-    key = normalize_number(number)
     fmt = typ["number_format"]
+    if fmt == "none":
+        if number.strip():
+            fail(422, "INVALID_NUMBER", "У вводного раздела нет номера.")
+        return ""
+    key = normalize_number(number)
     if fmt == "numeric" and not key.isdecimal():
         fail(422, "INVALID_NUMBER", "Ожидается цифровой номер.")
     if fmt == "roman" and not re.fullmatch(r"M{0,4}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})", key):
@@ -246,8 +250,11 @@ def create_node(code_id: str, body: dict, current=Depends(actor)):
                   (body.get("type_id"), code_id))
         parent_id = body.get("parent_id")
         validate_parent(c, code_id, parent_id, typ["id"])
-        number = plain(body.get("number"), 100)
+        number = plain(body.get("number", ""), 100)
         key = _number_for_type(number, typ)
+        title = plain(body.get("title"), 250)
+        if not title:
+            fail(422, "INVALID_TITLE", "Укажите название раздела.")
         parent_key = parent_id or "ROOT"
         sort_mode = maybe(c, "SELECT mode FROM sort_modes WHERE parent_key=?",
                           (code_id + ":" + parent_key + ":" + typ["id"],))
@@ -257,11 +264,14 @@ def create_node(code_id: str, body: dict, current=Depends(actor)):
                                   WHERE parent_key=? AND type_id=? AND status='active'""",
                                (parent_key, typ["id"])).fetchone()[0]
         node_id = uid()
+        if typ["number_format"] == "none":
+            key = "UNNUMBERED:" + node_id
+        sort_key = number_sort_key(title if typ["number_format"] == "none" else number)
         c.execute("""INSERT INTO structure_nodes
                    (id,code_id,type_id,parent_id,parent_key,number,number_key,sort_key,title,manual_order)
                    VALUES(?,?,?,?,?,?,?,?,?,?)""",
                   (node_id, code_id, typ["id"], parent_id, parent_key,
-                   number, key, number_sort_key(number, typ["number_format"]), plain(body.get("title"), 250), manual))
+                   number, key, sort_key, title, manual))
         audit(c, current, "node.create", "structure_node", node_id, {}, body)
     return {"id": node_id}
 
