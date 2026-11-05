@@ -468,6 +468,19 @@ def init_database():
         c.close()
 
 
+def purge_old_audit_events():
+    """Delete audit events older than six calendar months (UTC).
+
+    SQLite performs calendar-month subtraction rather than approximating six
+    months as 180 days. Full legal revisions, archival history and editorial
+    provenance are deliberately outside this retention policy.
+    """
+    with transaction() as c:
+        result = c.execute("""DELETE FROM audit_events
+            WHERE datetime(created_at) < datetime('now', '-6 months')""")
+        return result.rowcount
+
+
 def seed_demo(include_sample=True):
     with transaction() as c:
         for id_, name in (("state", "Штат Сан-Андреас"), ("county", "Округ"), ("city", "Город Лос-Сантос")):
