@@ -2005,6 +2005,16 @@ async function bootstrapLibrary() {
         const response=await fetch("/api/v1/auth/config",{headers:{Accept:"application/json"}});
         const data=await response.json();
         if(!response.ok)throw Error(data.error&&data.error.message||"Ошибка настройки авторизации.");
+        if(data.mode==='demo') {
+            const choices=await fetch('/api/v1/test-accounts/choices').then(r=>r.json());
+            if(Array.isArray(choices))for(const character of choices){
+                const option=document.createElement('option');
+                option.value=character.account_id+'@'+character.character_id;
+                option.textContent=character.account_name+' · '+character.name;
+                roleSelect.append(option);
+            }
+            roleSelect.value=role;
+        }
         await setupExternalLogin(data);
         await renderRoute(location.pathname,{restore:true});
     }catch(error){showError(error);}

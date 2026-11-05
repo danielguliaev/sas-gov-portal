@@ -14,7 +14,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from app.core import APP_ENV, error_handler, init_database, seed_demo, purge_old_audit_events, actor, require, read_db, transaction, uid, dumps, ts
-from app import legal, editor, portals, hierarchy, integration, auth, acts, outline, senate, senate_sessions, senate_officers
+from app import legal, editor, portals, hierarchy, integration, auth, acts, outline, senate, senate_sessions, senate_officers, test_accounts
 
 
 async def _audit_retention_worker():
@@ -41,6 +41,8 @@ async def _senate_deadline_worker():
 async def lifespan(_app):
     init_database()
     seed_demo(include_sample=APP_ENV != "production")
+    if APP_ENV != 'production' and test_accounts.core.AUTH_MODE == 'demo':
+        test_accounts.seed()
     # An explicit local-development option; production imports require an
     # operator's intentional CLI action and legal classification review.
     if APP_ENV != "production" and os.getenv("AUTO_IMPORT_PENAL_PART_I") == "1":
@@ -190,11 +192,18 @@ app.include_router(acts.router, prefix="/api/v1")
 app.include_router(senate.router, prefix="/api/v1")
 app.include_router(senate_sessions.router, prefix="/api/v1")
 app.include_router(senate_officers.router, prefix="/api/v1")
+app.include_router(test_accounts.router, prefix="/api/v1")
 
 WEB = Path(__file__).resolve().parent.parent / "web"
 app.mount("/static", StaticFiles(directory=WEB), name="static")
 
 # The Senate is a separate portal on the same database and API process.
+@app.get('/accounts', include_in_schema=False)
+def accounts_site():
+    test_accounts.local_only()
+    return FileResponse(WEB / 'accounts.html')
+
+
 @app.get("/senate", include_in_schema=False)
 @app.get("/senate/{path:path}", include_in_schema=False)
 def senate_site(path: str = ""):

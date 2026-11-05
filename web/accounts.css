@@ -1,0 +1,124 @@
+.accounts-shell {
+  max-width: 1400px;
+  margin: 20px auto;
+  background: #fff;
+  box-shadow: 0 0 15px #0005;
+}
+.accounts-shell .brand span {
+  font-size: 32px;
+}
+.accounts-nav {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  background: #333;
+  padding: 12px 24px;
+}
+.accounts-nav a {
+  color: #fff;
+}
+.accounts-nav button {
+  margin-left: auto;
+}
+.accounts-layout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 32px;
+}
+.accounts-layout aside {
+  border-right: 1px solid #ccc;
+  padding-right: 20px;
+}
+.accounts-layout input,
+.accounts-layout select,
+.accounts-layout textarea {
+  width: 100%;
+  padding: 9px;
+  border: 1px solid #aaa;
+}
+.account-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: #fff;
+  color: #333;
+  border: 0;
+  border-bottom: 1px solid #ddd;
+  padding: 14px 8px;
+}
+@media (min-width: 761px) {
+  .accounts-layout aside {
+    position: sticky;
+    top: 16px;
+    align-self: start;
+    max-height: 75vh;
+    overflow: auto;
+  }
+}
+.account-row.active {
+  background: #a30c1f;
+  color: #fff;
+}
+.account-row small {
+  display: block;
+  margin-top: 4px;
+}
+.account-row:hover:not(:disabled) {
+  background: #eee;
+  color: #222;
+}
+.permission-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+.permission-list label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+.permission-list input {
+  width: auto;
+}
+.accounts-layout .panel {
+  margin: 20px 0;
+  padding: 20px;
+  border: 1px solid #ccc;
+}
+.accounts-layout label.field {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0;
+}
+.accounts-layout .actions {
+  flex-wrap: wrap;
+}
+@media (max-width: 760px) {
+  .accounts-shell {
+    margin: 0;
+  }
+  .accounts-shell .brand span {
+    font-size: 22px;
+  }
+  .accounts-layout {
+    grid-template-columns: 1fr;
+  }
+  .accounts-layout aside {
+    border: 0;
+    padding: 0;
+    max-height: 280px;
+    overflow: auto;
+  }
+  .permission-list {
+    grid-template-columns: 1fr;
+  }
+  .accounts-nav {
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .accounts-nav button {
+    margin: 0;
+  }
+}

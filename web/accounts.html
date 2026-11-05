@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Тестовые аккаунты</title>
+    <link rel="stylesheet" href="/static/senate.css" />
+    <link rel="stylesheet" href="/static/accounts.css" />
+    <script defer src="/static/accounts.js"></script>
+  </head>
+  <body>
+    <div class="accounts-shell">
+      <header class="masthead">
+        <a class="brand" href="/senate"
+          ><img src="/static/senate-assets/seal.png" alt="Печать Сената" /><span
+            >УПРАВЛЕНИЕ АККАУНТАМИ</span
+          ></a
+        >
+      </header>
+      <nav class="accounts-nav">
+        <a href="/senate">Сенат</a><a href="/">Библиотека</a
+        ><a href="/senate#admin?tab=flags">Настройка групп</a
+        ><button id="bootstrapAdmin">Войти тестовым администратором</button>
+      </nav>
+      <main>
+        <h1>Тестовые аккаунты и персонажи</h1>
+        <p class="notice">
+          Локальная демонстрация без регистрации и паролей. Переключение
+          аккаунтов предназначено для тестирования и недоступно в рабочем режиме
+          OIDC.
+        </p>
+        <p id="message" role="status"></p>
+        <div class="accounts-layout">
+          <aside>
+            <label
+              >Найти аккаунт<input
+                id="search"
+                type="search"
+                placeholder="Название или ID"
+            /></label>
+            <div id="accountList"></div>
+          </aside>
+          <section id="detail" aria-live="polite">
+            <p>Загрузка аккаунтов…</p>
+          </section>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>

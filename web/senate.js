@@ -272,7 +272,7 @@
       btn = document.querySelector("#accountButton");
     btn.textContent = state.me ? "Кабинет" : "Вход";
     let html = state.me
-      ? `<p><b>${esc(state.me.profile?.name || state.me.id)}</b></p><a href="#cabinet">Мой кабинет</a><a href="#elections">Выбор Pro Tempore</a>${isAdmin() ? '<a href="#admin">Администрирование</a>' : ""}`
+      ? `<p><b>${esc(state.me.profile?.name || state.me.id)}</b></p><a href="#cabinet">Мой кабинет</a><a href="#elections">Выбор Pro Tempore</a>${isAdmin() ? '<a href="#admin">Администрирование</a><a href="/accounts">Тестовые аккаунты</a>' : ""}`
       : "<p>Вход для участников Сената</p>";
     if (state.auth?.mode === "demo")
       html += `<label for="demoRole">Локальная демонстрация<select id="demoRole"><option value="">Гость</option>${[
@@ -281,10 +281,14 @@
         ["superadmin", "Суперадминистратор"],
         ["lawyer", "Юрист"],
         ["editor", "Редактор"],
+        ...(state.testChoices || []).map((c) => [
+          c.account_id + "@" + c.character_id,
+          c.account_name + " · " + c.name,
+        ]),
       ]
         .map(
           ([id, n]) =>
-            `<option value="${id}" ${state.role === id ? "selected" : ""}>${n}</option>`,
+            `<option value="${esc(id)}" ${state.role === id ? "selected" : ""}>${esc(n)}</option>`,
         )
         .join(
           "",
@@ -2055,6 +2059,8 @@
   async function bootstrap() {
     try {
       state.auth = await api("/auth/config");
+      if (state.auth.mode === "demo")
+        state.testChoices = await api("/test-accounts/choices");
       await finishLogin();
       await refreshMe();
       state.config = await api("/senate/config");

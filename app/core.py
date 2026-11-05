@@ -180,6 +180,22 @@ def actor(request: Request, authorization: str | None = Header(None),
     # Keep request-derived audit context outside client-editable payloads.
     source = request.method + " " + request.url.path[:240]
     if APP_ENV != "production" and AUTH_MODE == "demo":
+        if x_demo_user and x_demo_user.startswith('test-'):
+            account_id, _, character_id = x_demo_user.partition('@')
+            with read_db() as c:
+                account = maybe(c, 'SELECT * FROM portal_test_accounts WHERE id=?', (account_id,))
+                if not account or not account['active']:
+                    fail(401, 'TEST_ACCOUNT_DISABLED', 'Тестовая учётная запись недоступна.')
+                character = maybe(c, 'SELECT id FROM portal_test_characters WHERE account_id=?' +
+                                  (' AND id=?' if character_id else '') + ' ORDER BY id LIMIT 1',
+                                  (account_id, character_id) if character_id else (account_id,))
+                if not character:
+                    fail(401, 'CHARACTER_NOT_OWNED', 'Персонаж не принадлежит выбранной учётной записи.')
+            identity = {'id': character['id'], 'account_id': account_id,
+                        'roles': set(loads(account['roles_json'])) | {'user'},
+                        'audit_source': source + ' account=' + account_id}
+            request.state.audit_identity = identity
+            return identity
         if x_demo_user in DEMO_ROLES:
             identity = {"id": "demo-" + x_demo_user, "roles": DEMO_ROLES[x_demo_user],
                         "audit_source": source}
@@ -501,7 +517,7 @@ def init_database():
                 raise
         for version, filename in ((8, "008_senate_portal.sql"), (9, "009_senate_sessions.sql"),
                                   (10, "010_senate_officers.sql"), (11, "011_senate_committee_agendas.sql"),
-                                  (12, "012_senate_flag_definitions.sql")):
+                                  (12, "012_senate_flag_definitions.sql"), (13, "013_test_accounts.sql")):
             if c.execute("SELECT 1 FROM schema_migrations WHERE version=?", (version,)).fetchone():
                 continue
             c.execute("BEGIN IMMEDIATE")
