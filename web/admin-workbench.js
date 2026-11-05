@@ -129,7 +129,7 @@ async function adminHierarchyWorkbench(area){
         const nameInput=adminInput("","Например: Подглава");nameInput.required=true;
         const levelInput=adminInput(types.length+1);levelInput.type="number";levelInput.min="1";
         const format=adminSelect([["Смешанная нумерация","mixed"],["Цифровая","numeric"],
-            ["Римская","roman"],["Буквенная","alpha"]],"mixed");
+            ["Римская","roman"],["Буквенная","alpha"],["Без номера","none"]],"mixed");
         const createParents=el("div","wb-check-grid");
         choices.forEach(([title,id])=>{
             const input=el("input");input.type="checkbox";input.value=id;
@@ -235,9 +235,9 @@ async function adminHierarchyWorkbench(area){
         content.append(header);
         if(!nodes.length){content.append(wbEmpty("Нет разделов","Создайте раздел в выбранном кодексе."));return;}
         const form=el("div","wb-task");
-        const moving=adminSelect(nodes.map(n=>[n.number+" · "+displayLegalTitle(n.title),n.id]));
+        const moving=adminSelect(nodes.map(n=>[(n.number?n.number+" · ":"")+displayLegalTitle(n.title),n.id]));
         moving.id="hierarchyMovingNode";
-        const destination=adminSelect(nodes.map(n=>[n.number+" · "+displayLegalTitle(n.title),n.id]),
+        const destination=adminSelect(nodes.map(n=>[(n.number?n.number+" · ":"")+displayLegalTitle(n.title),n.id]),
             null,"Корень кодекса");
         destination.id="hierarchyMoveDestination";
         const grid=el("div","wb-form-grid");
