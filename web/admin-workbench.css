@@ -105,3 +105,25 @@
 .admin-hierarchy-workbench .wb-empty,.admin-relations-workbench .wb-empty{text-align:left;padding:18px 0;}
 .admin-hierarchy-workbench .wb-empty-symbol,.admin-relations-workbench .wb-empty-symbol{display:none;}
 @media(max-width:760px){.admin-hierarchy-workbench .wb-steps,.admin-relations-workbench .wb-steps{flex-wrap:nowrap;overflow:auto;}.admin-hierarchy-workbench .wb-step,.admin-relations-workbench .wb-step{white-space:nowrap;}}
+
+/* Accessible, click-to-select article finder shared by relation editor and article overview. */
+.article-picker{border:1px solid #dbe5ed;background:#fff;border-radius:7px;padding:16px;display:grid;gap:10px;min-width:0;margin:12px 0;}
+.article-picker-heading strong{font-size:.91rem;color:#254663;}
+.article-picker-heading p{font-size:.77rem;margin:3px 0 0;}
+.article-picker-search{display:flex;gap:8px;align-items:stretch;}
+.article-picker-search input{width:100%;min-width:0;flex:1;border:1px solid #c9d6e1;border-radius:5px;padding:10px 12px;background:#fff;}
+.article-picker-search button{flex:none;}
+.article-picker-chosen{background:#f0f6f9;border-left:3px solid #c6a66b;color:#305675;border-radius:3px;padding:9px 12px;font-size:.8rem;}
+.article-picker-status{font-size:.75rem;margin:0;}
+.article-picker-results{display:grid;gap:0;max-height:275px;overflow-y:auto;}
+.article-picker-option{display:flex;align-items:flex-start;gap:5px;flex-direction:column;text-align:left;width:100%;border:0;border-bottom:1px solid #e3eaf0;background:#fff;padding:11px 13px;color:#244961;cursor:pointer;font:inherit;}
+.article-picker-option strong{font-size:.83rem;font-weight:650;}
+.article-picker-option small{font-size:.7rem;color:#7890a1;}
+.article-picker-option:hover,.article-picker-option:focus-visible{background:#edf4f9;}
+.article-picker-option[aria-pressed=true]{background:#e5eff5;box-shadow:inset 3px 0 0 #b99d6a;}
+.article-picker-native{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;opacity:0!important;overflow:hidden!important;clip-path:inset(50%);pointer-events:none;}
+.relation-inline-toggle{margin-top:9px;font-size:.78rem;}
+.relation-inline-form{margin-top:12px;max-width:720px;}
+.relation-inline-form .admin-form{border:1px solid #e1e9ef;border-radius:6px;padding:16px;background:#fafcfd;}
+.relation-inline-form .article-picker{margin:13px 0;}
+@media(max-width:530px){.article-picker{padding:12px;}.article-picker-search{flex-wrap:wrap;}.article-picker-search button{width:100%;}}
