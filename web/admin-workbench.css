@@ -90,3 +90,18 @@
  .wb-editor,.wb-task{padding:15px;}
 }
 @media (max-width:440px){.wb-picker{grid-template-columns:minmax(0,1fr)}}
+
+/* Keep hierarchy and relations as a clear sequence of tasks, not nested dashboards. */
+.admin-hierarchy-workbench .wb-layout,.admin-relations-workbench .wb-layout{display:block;}
+.admin-hierarchy-workbench .wb-nav,.admin-relations-workbench .wb-nav{position:static;padding:0 0 18px;margin-bottom:22px;border-bottom:1px solid #e0e8ee;}
+.admin-hierarchy-workbench .wb-steps,.admin-relations-workbench .wb-steps{flex-direction:row;flex-wrap:wrap;gap:5px;}
+.admin-hierarchy-workbench .wb-step,.admin-relations-workbench .wb-step{width:auto;padding:9px 13px;border-radius:4px;}
+.admin-hierarchy-workbench .wb-step.active,.admin-relations-workbench .wb-step.active{border:0;border-bottom:2px solid #b79a61;padding:9px 13px;background:transparent;}
+.admin-hierarchy-workbench .wb-nav-hint,.admin-relations-workbench .wb-nav-hint{padding:7px 2px 0;border:0;margin:5px 0 0;}
+.admin-hierarchy-workbench .wb-content,.admin-relations-workbench .wb-content{min-height:0;}
+.admin-hierarchy-workbench .wb-editor,.admin-hierarchy-workbench .wb-task,.admin-relations-workbench .wb-editor,.admin-relations-workbench .wb-task{border:0;border-radius:0;border-top:1px solid #e5ebef;padding:17px 0;background:transparent;}
+.admin-hierarchy-workbench .wb-picker,.admin-relations-workbench .wb-picker{border:0;border-radius:0;background:transparent;border-right:1px solid #e1e8ed;}
+.admin-hierarchy-workbench .wb-relationship,.admin-relations-workbench .wb-relationship{border:0;border-bottom:1px solid #e2e9ef;border-radius:0;margin:0;padding:14px 2px;}
+.admin-hierarchy-workbench .wb-empty,.admin-relations-workbench .wb-empty{text-align:left;padding:18px 0;}
+.admin-hierarchy-workbench .wb-empty-symbol,.admin-relations-workbench .wb-empty-symbol{display:none;}
+@media(max-width:760px){.admin-hierarchy-workbench .wb-steps,.admin-relations-workbench .wb-steps{flex-wrap:nowrap;overflow:auto;}.admin-hierarchy-workbench .wb-step,.admin-relations-workbench .wb-step{white-space:nowrap;}}
