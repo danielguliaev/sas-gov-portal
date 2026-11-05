@@ -1,7 +1,7 @@
 name: Tests
 on:
   push:
-    branches: [feat/legislative-system-v1, main]
+    branches: [feat/legislative-system-v1, feat/senate-portal, main]
   pull_request:
 jobs:
   test:
