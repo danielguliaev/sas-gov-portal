@@ -649,11 +649,7 @@ async function adminArchive(area) {
         panel.append(el("h3","","Что будет перемещено в архив"),
             el("p","","Статей: "+plan.article_count+" · Разделов: "+plan.node_count),
             el("p","muted","Материалы исчезнут из действующего каталога, но останутся доступны в архиве для восстановления."));
-        const ids=el("div","admin-id-list");
-        plan.node_ids.forEach(id=>ids.append(el("p","","Раздел: "+id)));
-        plan.article_ids.forEach(id=>ids.append(adminLink("Статья "+id,"/articles/"+id)));
-        // Keep technical IDs out of the normal reader flow.
-        if(false)panel.append(ids);
+
         const confirmButton=adminButton("Подтвердить архивирование",()=>adminSafe(async()=>{
             if(!confirm("Переместить выбранные материалы в архив? Их можно будет восстановить."))return;
             await api("/archive-batches",{method:"POST",headers:{
