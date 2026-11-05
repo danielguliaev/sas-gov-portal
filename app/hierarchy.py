@@ -20,9 +20,13 @@ def rename_node(node_id: str, body: dict, current=Depends(actor)):
         number = plain(body.get("number", node["number"]), 100)
         number_key = _number_for_type(number, typ)
         title = plain(body.get("title", node["title"]), 250)
+        if not title:
+            fail(422, "INVALID_TITLE", "Укажите название раздела.")
+        if typ["number_format"] == "none":
+            number_key = node["number_key"]
         # An existing manual index remains unchanged on renumbering.
         c.execute("""UPDATE structure_nodes SET number=?,number_key=?,sort_key=?,title=? WHERE id=?""",
-                  (number, number_key, number_sort_key(number, typ["number_format"]), title, node_id))
+                  (number, number_key, number_sort_key(title if typ["number_format"] == "none" else number), title, node_id))
         audit(c, current, "node.update", "structure_node", node_id, node,
               {"number": number, "title": title})
     return {"id": node_id, "number": number, "title": title}
