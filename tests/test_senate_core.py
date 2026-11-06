@@ -31,7 +31,7 @@ def committee_setup(client, bill_id):
     assert response.status_code == 200, response.text
     review = client.get(BASE + f'/bills/{bill_id}').json()['reviews'][-1]
     response = client.post(BASE + '/committees/rules/agenda', headers=SENATOR,
-                           json={'title': 'Заседание Rules Committee', 'review_ids': [review['id']]})
+                           json={'title': 'Заседание Rules Committee', 'starts_at': '2027-01-01T12:00:00Z', 'review_ids': [review['id']]})
     assert response.status_code == 200, response.text
 
 
@@ -184,9 +184,9 @@ def test_committee_agenda_requires_report_and_chair(client):
     client.post(BASE + f'/bills/{bill_id}/submit', headers=SENATOR)
     review = client.get(BASE + f'/bills/{bill_id}').json()['reviews'][0]
     assert client.post(BASE + '/committees/rules/agenda', headers=SENATOR,
-                       json={'review_ids': [review['id']]}).status_code == 404
+                       json={'starts_at': '2027-01-01T12:00:00Z', 'review_ids': [review['id']]}).status_code == 404
     assert client.post(BASE + '/committees/rules/agenda', headers=ADMIN,
-                       json={'review_ids': [review['id']]}).status_code == 403
+                       json={'starts_at': '2027-01-01T12:00:00Z', 'review_ids': [review['id']]}).status_code == 403
     assert decision(client, bill_id).status_code == 404
 
 

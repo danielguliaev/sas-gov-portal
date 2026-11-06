@@ -231,7 +231,7 @@ def sanctions_of(article):
     return {key: article[key] for key in SANCTION_FIELDS}
 
 
-def validate_article(c, data, code_id, old=None):
+def validate_article(c, data, code_id, old=None, *, mark_used=True):
     categories = data.get("categories", loads(old["categories_json"], []) if old else [])
     if not isinstance(categories, list) or any(not isinstance(x, str) for x in categories):
         fail(422, "INVALID_CATEGORIES", "Некорректные категории.")
@@ -299,7 +299,8 @@ def validate_article(c, data, code_id, old=None):
                                                  (field_id,))}
             if not set(options) <= known:
                 fail(422, "INVALID_CUSTOM_FIELD", "Неизвестный вариант.")
-        c.execute("UPDATE category_fields SET used_ever=1 WHERE id=?", (field_id,))
+        if mark_used:
+            c.execute("UPDATE category_fields SET used_ever=1 WHERE id=?", (field_id,))
     return categories, criminal_class, custom, sanctions
 
 
@@ -517,7 +518,8 @@ def init_database():
                 raise
         for version, filename in ((8, "008_senate_portal.sql"), (9, "009_senate_sessions.sql"),
                                   (10, "010_senate_officers.sql"), (11, "011_senate_committee_agendas.sql"),
-                                  (12, "012_senate_flag_definitions.sql"), (13, "013_test_accounts.sql")):
+                                  (12, "012_senate_flag_definitions.sql"), (13, "013_test_accounts.sql"),
+                                  (14, "014_senate_feedback.sql")):
             if c.execute("SELECT 1 FROM schema_migrations WHERE version=?", (version,)).fetchone():
                 continue
             c.execute("BEGIN IMMEDIATE")

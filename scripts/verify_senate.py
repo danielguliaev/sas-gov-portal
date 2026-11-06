@@ -57,7 +57,7 @@ def run():
                     request('POST', '/committees/rules/reports', 'user', {
                         'bill_id': bill_id, 'text': 'Проверочный отчёт консультанта. Замечаний нет.', 'recommendation': 'do_pass'})
                     review = request('GET', f'/bills/{bill_id}')['reviews'][0]
-                    request('POST', '/committees/rules/agenda', 'legislator', {'title': 'Проверочная повестка', 'review_ids': [review['id']]})
+                    request('POST', '/committees/rules/agenda', 'legislator', {'title': 'Проверочная повестка', 'starts_at': '2027-01-01T12:00:00Z', 'review_ids': [review['id']]})
                     request('POST', '/committees/rules/decisions', 'legislator', {
                         'bill_id': bill_id, 'decision': 'do_pass', 'comment': 'Рекомендовано к принятию.',
                         'transcript': 'Проверочная запись открытого совещания.', 'tally': {'yes': 1, 'no': 0, 'abstain': 0, 'absent': 0}})
@@ -72,9 +72,9 @@ def run():
                 vote_path = f'/sessions/{session_id}/votes'
                 request('POST', vote_path, 'legislator', {'bill_id': bills[0], 'choice': 'yes'})
                 request('POST', vote_path, 'legislator', {'bill_id': bills[1], 'choice': 'absent'})
-                absent = request('GET', f'/sessions/{session_id}')
-                assert absent['attendance']['present'] == 0
-                assert all(item['choices'][0]['choice'] == 'absent' for item in absent['items'])
+                absent = request('GET', f'/sessions/{session_id}', 'legislator')
+                assert absent['my_absent'] is True
+                assert all(item['my_choice'] == 'absent' and item['choices'] == [] for item in absent['items'])
                 for bill_id in bills:
                     request('POST', vote_path, 'legislator', {'bill_id': bill_id, 'choice': 'yes'})
                 timeout = monotonic() + 10

@@ -30,7 +30,18 @@ def _election(client, parent=None):
         body["parent_election_id"] = parent
     response = client.post(API+"/elections", json=body, headers=LIEUTENANT)
     assert response.status_code == 200, response.text
-    return response.json()
+    election = response.json()
+    agenda = client.post(API + '/sessions', headers=ADMIN, json={**body, 'bill_ids':[election['bill_id']]} )
+    assert agenda.status_code == 200, agenda.text
+    election['session_id'] = agenda.json()['id']
+    return election
+
+
+def _publish_question(client, election):
+    row = client.get(API + '/elections/' + election['id'], headers=ADMIN).json()
+    response = client.post(API + '/sessions/' + row['session_id'] + '/publish', headers=ADMIN)
+    assert response.status_code == 200, response.text
+    return client.get(API + '/elections/' + election['id']).json()
 
 
 def _end(session_id):
@@ -40,34 +51,28 @@ def _end(session_id):
     c.close()
 
 
-def test_election_requires_lieutenant_and_explicit_policy(client):
-    now = datetime.now(timezone.utc)
-    body = {"starts_at": (now+timedelta(hours=1)).isoformat(), "ends_at": (now+timedelta(hours=2)).isoformat()}
-    assert client.post(API+"/elections", headers=ADMIN, json=body).status_code == 403
+def test_election_requires_lieutenant_and_uses_common_agenda(client):
+    assert client.post(API+'/elections', headers=ADMIN, json={}).status_code == 403
     election = _election(client)
-    url = API+"/elections/"+election["id"]
-    assert client.get(url).status_code == 404
-    blocked = client.post(url+"/publish", headers=LIEUTENANT)
-    assert blocked.status_code == 409 and blocked.json()["error"]["code"] == "ELECTION_RULE_REQUIRED"
-    _policy()
-    published = client.post(url+"/publish", headers=LIEUTENANT)
-    assert published.status_code == 200, published.text
-    assert {candidate["id"] for candidate in published.json()["candidates"]} == {"demo-legislator"}
-    assert client.post(url+"/votes", headers=LIEUTENANT, json={"candidate_id":"demo-legislator"}).status_code == 403
+    published = _publish_question(client, election)
+    assert {c['id'] for c in published['candidates']} == {'demo-legislator'}
+    assert published['rule'] == 'simple_majority'
+    assert published['results_hidden'] is True
+    assert client.post(API+'/elections/'+election['id']+'/votes', headers=LIEUTENANT, json={'candidate_id':'demo-legislator'}).status_code == 403
 
 
 def test_election_assigns_winner_only_once_and_keeps_named_ballot(client):
     _policy()
     election = _election(client)
     url = API+"/elections/"+election["id"]
-    client.post(url+"/publish", headers=LIEUTENANT)
+    _publish_question(client, election)
     response = client.post(url+"/votes", headers=SENATOR, json={"candidate_id":"demo-legislator"})
     assert response.status_code == 200, response.text
     _end(election["session_id"])
     result = client.get(url).json()
     assert result["winner_id"] == "demo-legislator"
     assert result["choices"] == [{"voter_id":"demo-legislator","candidate_id":"demo-legislator"}]
-    assert client.post(url+"/close", headers=LIEUTENANT).status_code == 200
+    assert client.post(API+"/sessions/"+election["session_id"]+"/close", headers=ADMIN).status_code == 200
     assert client.post(url+"/votes", headers=SENATOR, json={"candidate_id":"demo-legislator"}).status_code == 409
     c = conn()
     assert c.execute("SELECT active FROM senate_user_flags WHERE user_id='demo-legislator' AND flag='pro_tempore'").fetchone()[0] == 1
@@ -82,7 +87,7 @@ def test_election_replaces_officer_inherited_from_custom_group(client):
     _flag('demo-lawyer', 'officers')
     election = _election(client)
     url = API + '/elections/' + election['id']
-    client.post(url + '/publish', headers=LIEUTENANT)
+    _publish_question(client, election)
     client.post(url + '/votes', headers=SENATOR, json={'candidate_id': 'demo-legislator'})
     _end(election['session_id'])
     assert client.get(url).json()['winner_id'] == 'demo-legislator'
@@ -98,7 +103,7 @@ def test_closed_election_ballot_correction_requires_explicit_office_review(clien
     _flag('demo-lawyer', 'senator')
     election = _election(client)
     url = API + '/elections/' + election['id']
-    client.post(url + '/publish', headers=LIEUTENANT)
+    _publish_question(client, election)
     client.post(url + '/votes', headers=SENATOR, json={'candidate_id': 'demo-legislator'})
     _end(election['session_id'])
     assert client.get(url).json()['winner_id'] == 'demo-legislator'
@@ -123,11 +128,11 @@ def test_old_election_correction_cannot_change_newer_election(client):
     _policy()
     election = _election(client)
     url = API + '/elections/' + election['id']
-    client.post(url + '/publish', headers=LIEUTENANT)
+    _publish_question(client, election)
     _end(election['session_id'])
     client.get(url)
     newer = _election(client)
-    assert client.post(API + '/elections/' + newer['id'] + '/publish', headers=LIEUTENANT).status_code == 200
+    _publish_question(client, newer)
     response = client.post(url + '/admin-correction', headers=ADMIN,
                            json={'voter_id': 'demo-legislator', 'candidate_id': 'demo-legislator', 'reason': 'Поздняя проверка'})
     assert response.status_code == 409 and response.json()['error']['code'] == 'NEWER_ELECTION_ACTIVE'
@@ -138,7 +143,7 @@ def test_tie_repeat_preserves_first_votes_and_parent(client):
     _flag("demo-lawyer", "senator")
     election = _election(client)
     url = API+"/elections/"+election["id"]
-    published = client.post(url+"/publish", headers=LIEUTENANT).json()
+    published = _publish_question(client, election)
     assert len(published["candidates"]) == 2
     for headers, candidate in [(SENATOR,"demo-legislator"),(SECOND,"demo-lawyer")]:
         assert client.post(url+"/votes", headers=headers, json={"candidate_id":candidate}).status_code == 200
@@ -216,7 +221,7 @@ def test_election_pdf_export_has_actual_pdf_for_frozen_candidates(client):
     _policy()
     election = _election(client)
     url = API+"/elections/"+election["id"]
-    assert client.post(url+"/publish", headers=LIEUTENANT).status_code == 200
+    _publish_question(client, election)
     assert client.post(url+"/votes", headers=SENATOR, json={"candidate_id":"demo-legislator"}).status_code == 200
     _end(election["session_id"])
     exported = client.get(API+"/sessions/"+election["session_id"]+"/export.pdf")

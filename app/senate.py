@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse
 from app import core
+from app.senate_document import document_rich, effective_label
 from app.core import actor, allrows, audit, clean, dumps, fail, loads, maybe, one, plain, read_db, transaction, ts, uid
 
 router = APIRouter(prefix='/senate', tags=['senate'])
@@ -86,6 +87,15 @@ def senate_audit(c, current, action, object_type, object_id, before=None, after=
     audit(c, current, 'senate.' + action, object_type, object_id, before or {}, after or {})
 
 
+def visible_audit(c, rows):
+    """Keep live ballots in durable storage without exposing them through audit APIs."""
+    hidden = {r['session_id'] for r in allrows(c, "SELECT session_id FROM senate_session_details WHERE status IN ('draft','published')")}
+    hidden.update(r['id'] for r in allrows(c, """SELECT e.id FROM senate_elections e JOIN senate_session_details s
+        ON s.session_id=e.session_id WHERE s.status IN ('draft','published')"""))
+    return [r for r in rows if not (r['object_id'] in hidden and r['action'].startswith(
+        ('senate.vote.', 'senate.election.vote', 'senate.election.admin_correction')))]
+
+
 def event(c, bill_id, kind, body, current):
     c.execute('INSERT INTO bill_events VALUES(?,?,?,?,?,?)',
               (uid(), bill_id, kind, body if isinstance(body, str) else dumps(body), current['id'], ts()))
@@ -113,9 +123,10 @@ def require_admin(c, current):
 
 def bill_row(c, bill_id):
     row = one(c, '''SELECT b.*,m.number,m.document_type,m.category_id,m.effective_at,m.version,
-                 m.changes_json,m.submitted_at,m.current_committee_id FROM bills b
+                 m.changes_json,m.submitted_at,m.current_committee_id,m.effective_rule FROM bills b
                  JOIN senate_bill_meta m ON m.bill_id=b.id WHERE b.id=?''', (bill_id,))
     row['changes'] = loads(row.pop('changes_json'), [])
+    row['document_rich'] = document_rich(row)
     return row
 
 
@@ -141,7 +152,7 @@ def require_editor(c, bill, current):
 
 def list_bills(c, current, mine=False, q='', status='', category='', type_='', committee='', author='', coauthor='', date_from='', date_to=''):
     rows = allrows(c, '''SELECT b.*,m.number,m.document_type,m.category_id,m.effective_at,m.version,
-                     m.changes_json,m.submitted_at,m.current_committee_id FROM bills b
+                     m.changes_json,m.submitted_at,m.current_committee_id,m.effective_rule FROM bills b
                      JOIN senate_bill_meta m ON m.bill_id=b.id ORDER BY b.created_at DESC,b.id''')
     result = []
     for row in rows:
@@ -208,8 +219,10 @@ def me(current=Depends(senate_actor)):
         c.execute('INSERT OR IGNORE INTO senate_profiles(user_id) VALUES(?)', (current['id'],))
         flags = flag_list(c, current)
         invites = allrows(c, "SELECT ca.*,b.title FROM senate_coauthors ca JOIN bills b ON b.id=ca.bill_id WHERE ca.user_id=? AND ca.status='pending'", (current['id'],))
+        from app.senate_sessions import can_manage_sessions
         return {'id': current['id'], 'roles': sorted(current['roles']), 'profile': profile(c, current['id']), 'flags': flags,
                 'capabilities': {'create_bill': 'senator' in flags, 'admin': 'superadmin' in flags,
+                'manage_sessions': can_manage_sessions(c, current),
                 'pro_tempore': 'pro_tempore' in flags, 'lieutenant_governor': 'lieutenant_governor' in flags}, 'invitations': invites}
 
 
@@ -224,9 +237,14 @@ def public():
         process_deadlines(c)
         sessions = []
         if c.execute("SELECT 1 FROM sqlite_master WHERE name='senate_session_details'").fetchone():
-            sessions = allrows(c, "SELECT s.*,d.* FROM legislative_sessions s JOIN senate_session_details d ON s.id=d.session_id WHERE d.status!='draft' ORDER BY d.starts_at DESC")
+            from app.senate_sessions import finalize_due_sessions
+            finalize_due_sessions(c)
+            sessions = allrows(c, "SELECT s.id,s.title,d.starts_at,d.status,d.published_at FROM legislative_sessions s JOIN senate_session_details d ON s.id=d.session_id WHERE d.status!='draft' ORDER BY d.starts_at DESC")
+        committee_agendas = allrows(c, '''SELECT a.id,a.title,a.starts_at,a.committee_id,c.name AS committee_name
+            FROM senate_committee_agendas a JOIN senate_committees c ON c.id=a.committee_id WHERE a.starts_at IS NOT NULL''')
         return {'bills': list_bills(c, {'id': 'guest', 'roles': set()}),
                 'committees': allrows(c, 'SELECT * FROM senate_committees WHERE active=1 ORDER BY name'), 'sessions': sessions,
+                'committee_agendas': committee_agendas,
                 'news': allrows(c, 'SELECT * FROM senate_news ORDER BY published_at DESC'), 'senators': senator_rows(c), 'settings': settings(c)}
 
 
@@ -246,6 +264,15 @@ def bills(mine: bool = False, q: str = '', status: str = '', category: str = '',
     with transaction() as c:
         process_deadlines(c)
         return list_bills(c, current, mine, q, status, category, type, committee, author, coauthor, date_from, date_to)
+
+
+def article_parameters(c, article):
+    result = dict(article)
+    result['categories'] = loads(article.get('categories_json'), article.get('categories', []))
+    result['custom_values'] = loads(article.get('custom_values'), {}) if isinstance(article.get('custom_values'), str) else article.get('custom_values', {})
+    result['sanctions'] = article.get('sanctions') or {k: article.get(k) for k in core.SANCTION_FIELDS}
+    result['relations'] = core.relation_snapshot(c, article['id'])
+    return result
 
 
 def validate_changes(c, raw):
@@ -269,18 +296,28 @@ def validate_changes(c, raw):
                 fail(422, 'DUPLICATE_TARGET', 'Одно положение не может быть изменено дважды в одной редакции.')
             targets.add(target_id)
             snapshot = one(c, f"SELECT * FROM {table} WHERE id=? AND status='active'", (target_id,))
+            if article_id:
+                snapshot = article_parameters(c, snapshot)
             target = {'code_id': snapshot['code_id'], 'article_id' if article_id else 'node_id': target_id,
                       'revision_id': snapshot.get('revision_id'), 'number': snapshot['number'], 'parent_id': snapshot['parent_id']}
         else:
             code_id = target.get('code_id') or change.get('code_id')
             one(c, "SELECT id FROM codes WHERE id=? AND status='active'", (code_id,))
             parent_id = target.get('parent_id') or change.get('parent_id')
+            after = target.get('after_article_id')
+            if after:
+                anchor = one(c, "SELECT parent_id FROM articles WHERE id=? AND code_id=? AND status='active'", (after, code_id))
+                parent_id = anchor['parent_id']
             if parent_id:
                 one(c, "SELECT id FROM structure_nodes WHERE id=? AND code_id=? AND status='active'", (parent_id, code_id))
-            target = {'code_id': code_id, 'parent_id': parent_id}
+            target = {'code_id': code_id, 'parent_id': parent_id, 'after_article_id': after}
+        code = one(c, 'SELECT name,abbreviation FROM codes WHERE id=?', (target['code_id'],))
+        target.update(code_name=code['name'], code_abbreviation=code['abbreviation'])
         article = change.get('article', {})
         if not isinstance(article, dict):
             fail(422, 'INVALID_CHANGE', 'Некорректное содержание положения.')
+        if any(key in article or key in change for key in ('annotations', 'footnotes', 'scientific_notes')):
+            fail(422, 'ANNOTATIONS_READ_ONLY', 'Научные сноски не входят в изменения законопроекта.')
         text = clean(article.get('text_rich', change.get('text_rich', '')))
         if operation != 'repeal' and not re.sub('<[^>]+>', '', text).strip():
             fail(422, 'TEXT_REQUIRED', 'Укажите новый текст положения.')
@@ -289,6 +326,49 @@ def validate_changes(c, raw):
                    'title': plain(article.get('title', change.get('title', snapshot['title'] if snapshot else '')), 250), 'text_rich': text}
         if operation == 'add' and (not content['number'] or not content['title']):
             fail(422, 'NEW_ARTICLE_REQUIRED', 'Для нового положения укажите номер и заголовок.')
+        if not node_id:
+            previous = {**snapshot, 'custom_values': dumps(snapshot['custom_values'])} if snapshot else None
+            categories, criminal_class, custom, sanctions = core.validate_article(c, article, target['code_id'], previous, mark_used=False)
+            content.update(categories=categories, criminal_class=criminal_class, custom_values=custom, sanctions=sanctions)
+            relations = article.get('relations', snapshot.get('relations', []) if snapshot else [])
+            if not isinstance(relations, list):
+                fail(422, 'INVALID_RELATIONS', 'Укажите список юридических связей.')
+            normalized, seen = [], set()
+            for relation in relations:
+                if not isinstance(relation, dict):
+                    fail(422, 'INVALID_RELATION', 'Некорректная юридическая связь.')
+                kind = one(c, 'SELECT * FROM relation_types WHERE id=? AND active=1', (relation.get('type_id'),))
+                source_id = relation.get('source_id', content['id'])
+                target_id = relation.get('target_id')
+                if content['id'] not in (source_id, target_id) or source_id == target_id:
+                    fail(422, 'INVALID_RELATION', 'Связь должна соединять эту статью с другой статьёй библиотеки.')
+                other_id = target_id if source_id == content['id'] else source_id
+                other = one(c, '''SELECT a.*,c.abbreviation FROM articles a JOIN codes c ON c.id=a.code_id
+                    WHERE a.id=? AND a.status='active' ''', (other_id,))
+                source_cats, target_cats = (categories, loads(other['categories_json'], [])) if source_id == content['id'] else (loads(other['categories_json'], []), categories)
+                if (kind['source_category'] and kind['source_category'] not in source_cats) or (kind['target_category'] and kind['target_category'] not in target_cats):
+                    fail(422, 'RELATION_RULE', 'Категории статей несовместимы с выбранной связью.')
+                key = (kind['id'], source_id, target_id)
+                if key in seen:
+                    fail(422, 'DUPLICATE_RELATION', 'Юридическая связь повторяется.')
+                seen.add(key)
+                normalized.append(dict(type_id=kind['id'], source_id=source_id, target_id=target_id,
+                    label=kind['name'] + ': ' + other['abbreviation'] + ' §' + other['number']))
+            content['relations'] = normalized
+            names = {r['id']: r['name'] for r in allrows(c, 'SELECT id,name FROM categories')}
+            fields = {r['id']: r for r in allrows(c, 'SELECT * FROM category_fields')}
+            options = {r['id']: r['name'] for r in allrows(c, 'SELECT * FROM field_options')}
+            custom_display = {}
+            for key, value in custom.items():
+                f = fields[key]
+                if f['field_type'] == 'choice':
+                    value = ', '.join(options.get(v, v) for v in (value if isinstance(value, list) else [value])) if value is not None else ''
+                elif f['field_type'] == 'boolean':
+                    value = 'Да' if value else 'Нет'
+                elif isinstance(value, list):
+                    value = '–'.join(map(str, value))
+                custom_display[f['name']] = re.sub('<[^>]+>', '', str(value or ''))
+            content['display'] = {'categories': [names.get(k, k) for k in categories], 'custom_values': custom_display}
         changes.append({'operation': operation, 'target': target, 'article': content, 'source': snapshot})
     return changes
 
@@ -296,26 +376,33 @@ def validate_changes(c, raw):
 def validate_bill(c, body, old=None):
     title = plain(body.get('title', old['title'] if old else ''), 250)
     rich = clean(body.get('text_rich', old['text_rich'] if old else ''))
-    if not title or not re.sub('<[^>]+>', '', rich).strip():
-        fail(422, 'BILL_REQUIRED_FIELDS', 'Укажите название и текст проекта.')
+    if not title:
+        fail(422, 'BILL_REQUIRED_FIELDS', 'Укажите название проекта.')
     document_type = body.get('document_type', old['document_type'] if old else 'senate_bill')
     category = body.get('category_id', old['category_id'] if old else 'general')
     one(c, 'SELECT id FROM senate_document_types WHERE id=?' + ('' if old and old['document_type'] == document_type else ' AND active=1'), (document_type,))
     one(c, 'SELECT id FROM senate_categories WHERE id=?' + ('' if old and old['category_id'] == category else ' AND active=1'), (category,))
     effective = body.get('effective_at', old['effective_at'] if old else None)
+    effective_rule = body.get('effective_rule', old['effective_rule'] if old else ('specified_date' if effective else 'standard'))
+    if effective_rule not in {'standard', 'immediate', 'specified_date'}:
+        fail(422, 'INVALID_EFFECTIVE_RULE', 'Выберите правило вступления в силу.')
+    if effective_rule != 'specified_date':
+        effective = None
     if effective:
         try:
             datetime.fromisoformat(effective.replace('Z', '+00:00'))
         except (ValueError, TypeError, AttributeError):
             fail(422, 'INVALID_DATE', 'Укажите корректную дату вступления в силу.')
+    if effective_rule == 'specified_date' and not effective:
+        fail(422, 'EFFECTIVE_DATE_REQUIRED', 'Выберите дату применения акта.')
     changes = validate_changes(c, body['changes']) if 'changes' in body else (old['changes'] if old else [])
-    return dict(title=title, text_rich=rich, document_type=document_type, category_id=category, effective_at=effective, changes=changes)
+    return dict(title=title, text_rich=rich, document_type=document_type, category_id=category, effective_at=effective, effective_rule=effective_rule, changes=changes)
 
 
 def save_revision(c, bill_id, version, values, current):
     revision_id = uid()
     c.execute('INSERT INTO bill_revisions VALUES(?,?,?,?,?,?)', (revision_id, bill_id, version, values['text_rich'], current['id'], ts()))
-    c.execute('INSERT INTO senate_revision_meta VALUES(?,?)', (revision_id, dumps({k: v for k, v in values.items() if k != 'text_rich'})))
+    c.execute('INSERT INTO senate_revision_meta VALUES(?,?)', (revision_id, dumps({**{k: v for k, v in values.items() if k != 'text_rich'}, 'document_rich': document_rich(values)})))
 
 
 @router.post('/bills')
@@ -330,12 +417,21 @@ def create_bill_in_transaction(c, body, current):
     values, bill_id = validate_bill(c, body), uid()
     number = f"SB-{c.execute('SELECT COUNT(*)+1 FROM senate_bill_meta').fetchone()[0]:04d}"
     c.execute('INSERT INTO bills VALUES(?,?,?,?,?,?)', (bill_id, values['title'], current['id'], 'draft', values['text_rich'], ts()))
-    c.execute('INSERT INTO senate_bill_meta(bill_id,number,document_type,category_id,effective_at,changes_json) VALUES(?,?,?,?,?,?)',
-              (bill_id, number, values['document_type'], values['category_id'], values['effective_at'], dumps(values['changes'])))
+    c.execute('INSERT INTO senate_bill_meta(bill_id,number,document_type,category_id,effective_at,changes_json,effective_rule) VALUES(?,?,?,?,?,?,?)',
+              (bill_id, number, values['document_type'], values['category_id'], values['effective_at'], dumps(values['changes']), values['effective_rule']))
+    sync_coauthors(c, bill_id, body, current, current['id'])
     save_revision(c, bill_id, 1, values, current)
     event(c, bill_id, 'draft_created', 'Черновик создан.', current)
     senate_audit(c, current, 'bill.create', 'bill', bill_id, after={'version': 1})
     return {'id': bill_id, 'status': 'draft', 'version': 1, 'number': number}
+
+
+@router.post('/bills/preview')
+def preview_bill(body: dict, current=Depends(senate_actor)):
+    with read_db() as c:
+        require_flag(c, current, 'senator')
+        values = validate_bill(c, {**body, 'title': body.get('title') or 'Проект без названия'})
+        return {'document_rich': document_rich(values), 'effective_label': effective_label(values)}
 
 
 @router.get('/bills/{bill_id}')
@@ -346,11 +442,14 @@ def bill_detail(bill_id: str, current=Depends(optional_senate_actor)):
         bill['revisions'] = allrows(c, 'SELECT r.*,m.metadata_json FROM bill_revisions r LEFT JOIN senate_revision_meta m ON m.revision_id=r.id WHERE r.bill_id=? ORDER BY r.version DESC', (bill_id,))
         for revision in bill['revisions']:
             revision['metadata'] = loads(revision.pop('metadata_json'), {})
+            revision['document_rich'] = revision['metadata'].get('document_rich') or document_rich({**revision['metadata'], 'text_rich': revision['text_rich']})
         bill['events'] = allrows(c, 'SELECT * FROM bill_events WHERE bill_id=? ORDER BY created_at,id', (bill_id,))
         private = bill['author_id'] == current['id'] or has_flag(c, current, 'superadmin')
         if not private:
             bill['events'] = [e for e in bill['events'] if e['event_type'] != 'coauthor_declined']
         bill['coauthors'] = allrows(c, 'SELECT * FROM senate_coauthors WHERE bill_id=?' + ('' if private else " AND status='accepted'"), (bill_id,))
+        for coauthor in bill['coauthors']:
+            coauthor['name'] = profile(c, coauthor['user_id'])['name']
         bill['reviews'] = allrows(c, 'SELECT * FROM senate_reviews WHERE bill_id=? ORDER BY assigned_at,id', (bill_id,))
         for review in bill['reviews']:
             item = maybe(c, 'SELECT snapshot_json FROM senate_committee_agenda_items WHERE review_id=?', (review['id'],))
@@ -376,6 +475,8 @@ def update_bill(bill_id: str, body: dict, current=Depends(senate_actor)):
         c.execute('UPDATE senate_bill_meta SET document_type=?,category_id=?,effective_at=?,version=?,changes_json=? WHERE bill_id=?',
                   (values['document_type'], values['category_id'], values['effective_at'], version, dumps(values['changes']), bill_id))
         save_revision(c, bill_id, version, values, current)
+        c.execute('UPDATE senate_bill_meta SET effective_rule=? WHERE bill_id=?', (values['effective_rule'], bill_id))
+        sync_coauthors(c, bill_id, body, current, bill['author_id'])
         event(c, bill_id, 'revision_created', {'version': version}, current)
         senate_audit(c, current, 'bill.revise', 'bill', bill_id, {'version': bill['version']}, {'version': version})
     return {'id': bill_id, 'version': version, 'status': bill['status']}
@@ -388,10 +489,10 @@ def submit_bill(bill_id: str, current=Depends(senate_actor)):
         require_editor(c, bill, current)
         if not has_flag(c, current, 'senator'):
             fail(403, 'SENATOR_REQUIRED', 'Подача доступна только сенатору.')
-        if not bill['effective_at']:
-            fail(422, 'EFFECTIVE_DATE_REQUIRED', 'Укажите дату вступления изменений в силу.')
         document_type = one(c, 'SELECT * FROM senate_document_types WHERE id=?', (bill['document_type'],))
         for field in loads(document_type['required_fields_json'], []):
+            if field in {'text_rich', 'effective_at'}:
+                continue
             if not bill.get(field):
                 fail(422, 'DOCUMENT_REQUIRED_FIELD', 'Заполните обязательное поле шаблона: ' + field)
         c.execute('UPDATE senate_bill_meta SET submitted_at=COALESCE(submitted_at,?) WHERE bill_id=?', (ts(), bill_id))
@@ -400,6 +501,35 @@ def submit_bill(bill_id: str, current=Depends(senate_actor)):
         event(c, bill_id, 'submitted', {'committee_id': target, 'version': bill['version']}, current)
         senate_audit(c, current, 'bill.submit', 'bill', bill_id, {'status': bill['status']}, {'status': 'committee_review'})
     return {'id': bill_id, 'status': 'committee_review'}
+
+
+@router.get('/coauthor-candidates')
+def coauthor_candidates(current=Depends(senate_actor)):
+    with read_db() as c:
+        require_flag(c, current, 'senator')
+        return [{'id': u['id'], 'name': u.get('name') or u['id']} for u in known_users(c) if u['id'] != current['id']]
+
+
+def sync_coauthors(c, bill_id, body, current, author_id):
+    if 'coauthor_ids' not in body:
+        return
+    if current['id'] != author_id:
+        fail(403, 'AUTHOR_REQUIRED', 'Список соавторов изменяет автор проекта.')
+    ids = body['coauthor_ids']
+    known = {u['id'] for u in known_users(c)} - {author_id}
+    if not isinstance(ids, list) or any(not isinstance(x, str) or x not in known for x in ids) or len(set(ids)) != len(ids):
+        fail(422, 'INVALID_COAUTHOR', 'Выберите соавторов из списка пользователей без повторов.')
+    old = allrows(c, 'SELECT * FROM senate_coauthors WHERE bill_id=?', (bill_id,))
+    for row in old:
+        if row['user_id'] not in ids:
+            c.execute('DELETE FROM senate_coauthors WHERE bill_id=? AND user_id=?', (bill_id, row['user_id']))
+    existing = {r['user_id'] for r in old if r['status'] in {'pending', 'accepted'}}
+    for user_id in ids:
+        if user_id not in existing:
+            c.execute('''INSERT INTO senate_coauthors VALUES(?,?,?,?,NULL) ON CONFLICT(bill_id,user_id)
+                DO UPDATE SET status='pending',invited_at=excluded.invited_at,responded_at=NULL''', (bill_id, user_id, 'pending', ts()))
+    if set(ids) != {r['user_id'] for r in old}:
+        senate_audit(c, current, 'coauthor.select', 'bill', bill_id, {'ids': [r['user_id'] for r in old]}, {'ids': ids})
 
 
 @router.post('/bills/{bill_id}/coauthors')
@@ -433,15 +563,21 @@ def respond_coauthor(bill_id: str, body: dict, current=Depends(senate_actor)):
 
 
 @router.get('/library')
-def library(q: str = '', current=Depends(senate_actor)):
+def library(q: str = '', catalog: bool = False, current=Depends(senate_actor)):
     with read_db() as c:
         require_flag(c, current, 'senator')
-        articles = allrows(c, '''SELECT a.id,a.code_id,a.parent_id,a.number,a.title,a.text_rich,a.revision_id,c.name AS code_name
+        articles = allrows(c, '''SELECT a.*,c.name AS code_name,c.abbreviation AS code_abbreviation
                              FROM articles a JOIN codes c ON c.id=a.code_id WHERE a.status='active' ORDER BY c.name,a.sort_key''')
         nodes = allrows(c, "SELECT * FROM structure_nodes WHERE status='active' ORDER BY sort_key")
         query = q.casefold()
-        return {'articles': [a for a in articles if query in (a['title'] + ' ' + a['number'] + ' ' + a['code_name']).casefold()][:200],
-                'nodes': [n for n in nodes if query in (n['title'] + ' ' + n['number']).casefold()][:200]}
+        filtered = [article_parameters(c, a) for a in articles if query in (a['title'] + ' ' + a['number'] + ' ' + a['code_name'] + ' ' + a['code_abbreviation']).casefold()][:200]
+        return {'articles': filtered, 'nodes': [n for n in nodes if query in (n['title'] + ' ' + n['number']).casefold()][:200],
+                **({'codes': allrows(c, "SELECT id,name,abbreviation FROM codes WHERE status='active' ORDER BY name"),
+                    'all_nodes': nodes, 'article_index': [{k: a[k] for k in ('id','code_id','parent_id','number','title','code_abbreviation')} for a in articles],
+                    'categories': allrows(c, 'SELECT * FROM categories WHERE active=1'),
+                    'fields': allrows(c, 'SELECT * FROM category_fields WHERE active=1'),
+                    'options': allrows(c, 'SELECT * FROM field_options WHERE active=1'),
+                    'relation_types': allrows(c, 'SELECT * FROM relation_types WHERE active=1')} if catalog else {})}
 
 
 @router.get('/senators')
@@ -494,11 +630,13 @@ def committee_agenda(committee_id: str, body: dict, current=Depends(senate_actor
         if not all(has_flag(c, current, f) for f in ('senator', 'committee:' + committee_id, 'chair:' + committee_id)):
             fail(403, 'CHAIR_REQUIRED', 'Повестку формирует председатель комитета.')
         ids = body.get('review_ids')
+        from app.senate_sessions import _date
+        starts_at = _date(body.get('starts_at'), 'starts_at').isoformat()
         title = plain(body.get('title', 'Повестка комитета'), 250)
         if not isinstance(ids, list) or not ids or any(not isinstance(x, str) for x in ids) or len(set(ids)) != len(ids):
             fail(422, 'INVALID_AGENDA', 'Выберите рассмотрения для повестки без повторов.')
         agenda_id = uid()
-        c.execute('INSERT INTO senate_committee_agendas VALUES(?,?,?,?,?)', (agenda_id, committee_id, title, current['id'], ts()))
+        c.execute('INSERT INTO senate_committee_agendas(id,committee_id,title,created_by,published_at,starts_at) VALUES(?,?,?,?,?,?)', (agenda_id, committee_id, title, current['id'], ts(), starts_at))
         for position, review_id in enumerate(ids, 1):
             review = one(c, "SELECT * FROM senate_reviews WHERE id=? AND committee_id=? AND status='report_ready'", (review_id, committee_id))
             bill = bill_row(c, review['bill_id'])
@@ -510,7 +648,7 @@ def committee_agenda(committee_id: str, body: dict, current=Depends(senate_actor
             c.execute('INSERT INTO senate_committee_agenda_items VALUES(?,?,?,?)', (agenda_id, review_id, position, dumps(snapshot)))
             c.execute("UPDATE senate_reviews SET status='agenda' WHERE id=?", (review_id,))
             event(c, review['bill_id'], 'committee_agenda', {'agenda_id': agenda_id, 'version': review['version']}, current)
-        senate_audit(c, current, 'committee.agenda', 'committee_agenda', agenda_id, after={'title': title, 'review_ids': ids})
+        senate_audit(c, current, 'committee.agenda', 'committee_agenda', agenda_id, after={'title': title, 'review_ids': ids, 'starts_at': starts_at})
     return {'id': agenda_id}
 
 
@@ -560,6 +698,7 @@ def committee_decision(committee_id: str, body: dict, current=Depends(senate_act
             c.execute('UPDATE senate_bill_meta SET document_type=?,category_id=?,effective_at=?,version=?,changes_json=? WHERE bill_id=?',
                       (values['document_type'], values['category_id'], values['effective_at'], version, dumps(values['changes']), bill['id']))
             save_revision(c, bill['id'], version, values, current)
+            c.execute('UPDATE senate_bill_meta SET effective_rule=? WHERE bill_id=?', (values['effective_rule'], bill['id']))
             bill['version'] = version
         c.execute("UPDATE senate_reviews SET status='decided',decision=?,chair_id=?,comment=?,transcript=?,tally_json=? WHERE id=?",
                   (decision, current['id'], comment, transcript, dumps(tally), review['id']))
@@ -607,7 +746,7 @@ def admin(current=Depends(senate_actor)):
                 'flag_types': allrows(c, 'SELECT * FROM senate_flag_definitions ORDER BY name'),
                 'settings': settings(c), 'categories': allrows(c, 'SELECT * FROM senate_categories'),
                 'document_types': allrows(c, 'SELECT * FROM senate_document_types'),
-                'audit': allrows(c, 'SELECT * FROM senate_audit ORDER BY created_at DESC LIMIT 500')}
+                'audit': visible_audit(c, allrows(c, 'SELECT * FROM senate_audit ORDER BY created_at DESC LIMIT 500'))}
 
 
 @router.put('/admin/settings')
@@ -739,7 +878,7 @@ def export_json(bill_id: str, current=Depends(optional_senate_actor)):
     with read_db() as c:
         act = maybe(c, 'SELECT id FROM adopted_acts WHERE bill_id=?', (bill_id,))
         for vote in votes:
-            vote['choices'] = allrows(c, 'SELECT voter_id,choice FROM vote_choices WHERE vote_id=? ORDER BY voter_id', (vote['id'],))
+            vote['choices'] = []
             if vote['session_id']:
                 from app.senate_sessions import _detail
                 session = _detail(c, vote['session_id'], current)
@@ -747,12 +886,12 @@ def export_json(bill_id: str, current=Depends(optional_senate_actor)):
                 item = next((item for item in session['items'] if item['vote_id'] == vote['id']), None)
                 if item:
                     vote.update({key: item[key] for key in ('version', 'rule', 'threshold', 'category', 'choices', 'tally')})
-                corrections = allrows(c, "SELECT user_id,action,before_json,after_json,created_at FROM senate_audit WHERE object_id=? AND action IN ('senate.vote.admin_correction','senate.vote.admin_resolution') ORDER BY created_at", (vote['session_id'],))
+                corrections = allrows(c, "SELECT user_id,action,before_json,after_json,created_at FROM senate_audit WHERE object_id=? AND action IN ('senate.vote.admin_correction','senate.vote.admin_resolution') ORDER BY created_at", (vote['session_id'],)) if session['status'] not in {'draft', 'published'} else []
                 vote['administrative_corrections'] = corrections
     export = {'format': 'san-andreas.senate-law', 'format_version': '1.0', 'export_id': uid(), 'generated_at': ts(),
               'law': {'bill_id': bill_id, 'act_id': act['id'] if act else None, 'title': bill['title'], 'document_type': bill['document_type'],
-                      'category': bill['category_id'], 'effective_at': bill['effective_at'], 'authors': [bill['author_id']],
-                      'coauthors': coauthors, 'final_text_rich': bill['text_rich'], 'changes': bill['changes'], 'status': bill['status'],
+                      'category': bill['category_id'], 'effective_at': bill['effective_at'], 'effective_rule': bill['effective_rule'], 'authors': [bill['author_id']],
+                      'coauthors': coauthors, 'preamble_rich': bill['text_rich'], 'final_text_rich': bill['document_rich'], 'changes': bill['changes'], 'status': bill['status'],
                       'history': {'versions': versions, 'events': events, 'votes': votes, 'reviews': bill['reviews']}}}
     with transaction() as c:
         if current['id'] != 'guest':
@@ -771,7 +910,7 @@ def admin_correct_bill(bill_id: str, body: dict, current=Depends(senate_actor)):
         if body.get('base_version') != bill['version']:
             fail(409, 'STALE_VERSION', 'Предмет изменён. Обновите данные.')
         before = dict(bill)
-        changes_text = any(key in body for key in ('title', 'text_rich', 'document_type', 'category_id', 'effective_at', 'changes'))
+        changes_text = any(key in body for key in ('title', 'text_rich', 'document_type', 'category_id', 'effective_at', 'effective_rule', 'changes'))
         if changes_text:
             if bill['status'] == 'agenda_published':
                 fail(409, 'AGENDA_FROZEN', 'Текст опубликованной повестки зафиксирован. Исправьте данные после завершения заседания.')
@@ -784,6 +923,7 @@ def admin_correct_bill(bill_id: str, body: dict, current=Depends(senate_actor)):
             c.execute('UPDATE senate_bill_meta SET document_type=?,category_id=?,effective_at=?,version=?,changes_json=? WHERE bill_id=?',
                       (values['document_type'], values['category_id'], values['effective_at'], bill['version'], dumps(values['changes']), bill_id))
             save_revision(c, bill_id, bill['version'], values, current)
+            c.execute('UPDATE senate_bill_meta SET effective_rule=? WHERE bill_id=?', (values['effective_rule'], bill_id))
         status = body.get('status', bill['status'])
         allowed = {'draft', 'committee_review', 'held', 'revision_requested', 'committee_rejected', 'ready_plenary', 'adopted', 'rejected'}
         if status not in allowed or bill['status'] == 'agenda_published':
@@ -826,8 +966,8 @@ def export_pdf(bill_id: str, current=Depends(optional_senate_actor), time_zone: 
         committee_names = {r['id']: r['name'] for r in allrows(c, 'SELECT id,name FROM senate_committees')}
     author = people.get(bill['author_id'], bill['author_id'])
     coauthors = ', '.join(people.get(co['user_id'], co['user_id']) for co in bill['coauthors'] if co['status'] == 'accepted') or 'Не указаны'
-    sections = [('Реквизиты', f"{bill['number']}\nСтатус: {display(bill['status'])}\nАвтор: {author}\nСоавторы: {coauthors}\nДата вступления в силу: {display_time(bill['effective_at'], zone)}\nЧасовой пояс: {time_zone}")]
-    sections.extend((f"Редакция {r['version']} · {display_time(r['created_at'], zone)}", r['text_rich']) for r in reversed(bill['revisions']))
+    sections = [('Реквизиты', f"{bill['number']}\nСтатус: {display(bill['status'])}\nАвтор: {author}\nСоавторы: {coauthors}\nВступление в силу: {effective_label(bill)}\nЧасовой пояс: {time_zone}")]
+    sections.extend((f"Редакция {r['version']} · {display_time(r['created_at'], zone)}", r['document_rich']) for r in reversed(bill['revisions']))
     for review in bill['reviews']:
         sections.append((f"{committee_names.get(review['committee_id'], review['committee_id'])} · цикл {review['cycle']}",
                          f"Отчёт: {review['report_text'] or 'Не предоставлен'}\nРешение: {display(review['decision'])}\n{review['comment'] or ''}\n{review['transcript'] or ''}"))

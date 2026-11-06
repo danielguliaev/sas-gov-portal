@@ -987,5 +987,6 @@ def archive_inventory(code_id: str | None = None, current=Depends(actor)):
 def audit_log(limit: int = 100, current=Depends(actor)):
     _admin(current)
     with read_db() as c:
-        return allrows(c, "SELECT * FROM audit_events ORDER BY created_at DESC LIMIT ?",
-                       (min(max(limit, 1), 200),))
+        from app.senate import visible_audit
+        return visible_audit(c, allrows(c, "SELECT * FROM audit_events ORDER BY created_at DESC LIMIT ?",
+                       (min(max(limit, 1), 200),)))

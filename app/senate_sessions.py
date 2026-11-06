@@ -33,8 +33,23 @@ def _session(c, session_id):
         JOIN senate_session_details d ON d.session_id=s.id WHERE s.id=?""", (session_id,))
 
 
+def can_manage_sessions(c, current):
+    if has_flag(c, current, 'superadmin') or has_flag(c, current, 'pro_tempore'):
+        return True
+    return has_flag(c, current, 'lieutenant_governor') and not any(
+        has_flag(c, {'id': u['id'], 'roles': set(u.get('roles', []))}, 'pro_tempore') for u in known_users(c))
+
+
 def _manage(c, current):
-    require_flag(c, current, "pro_tempore", "superadmin")
+    if not can_manage_sessions(c, current):
+        fail(403, 'FORBIDDEN', 'Повестку формирует про темпоре, а при его отсутствии лейтенант-губернатор.')
+
+
+def visible_session(c, session, current):
+    result = dict(session)
+    if not current or not any(has_flag(c, current, f) for f in ('senator', 'lieutenant_governor', 'pro_tempore', 'superadmin')):
+        result.pop('ends_at', None)
+    return result
 
 
 def _event(c, bill_id, event, body, current):
@@ -84,7 +99,7 @@ def tally_votes(choices, rule, threshold):
 
 def _attendance(c, session_id):
     participants = allrows(c, """SELECT e.user_id,e.is_lieutenant,
-        MAX(CASE WHEN vc.choice IN ('yes','no','abstain') THEN 1 ELSE 0 END) AS present,
+        MAX(CASE WHEN vc.choice IS NOT NULL AND vc.choice!='absent' THEN 1 ELSE 0 END) AS present,
         MAX(CASE WHEN vc.choice='absent' THEN 1 ELSE 0 END) AS absent
         FROM senate_session_electorate e
         LEFT JOIN votes v ON v.session_id=e.session_id
@@ -102,7 +117,11 @@ def _record_adopted_act(c, item, current):
         return
     bill = one(c, "SELECT * FROM bills WHERE id=?", (item["bill_id"],))
     meta = one(c, "SELECT * FROM senate_bill_meta WHERE bill_id=?", (item["bill_id"],))
-    text = one(c, "SELECT text_rich FROM bill_revisions WHERE bill_id=? AND version=?", (item["bill_id"], item["version"]))["text_rich"]
+    revision = one(c, """SELECT r.text_rich,m.metadata_json FROM bill_revisions r LEFT JOIN senate_revision_meta m ON m.revision_id=r.id
+        WHERE r.bill_id=? AND r.version=?""", (item['bill_id'], item['version']))
+    from app.senate_document import document_rich
+    metadata = loads(revision['metadata_json'], {})
+    text = metadata.get('document_rich') or document_rich({**metadata, 'text_rich': revision['text_rich']})
     publication_id, act_id = uid(), uid()
     c.execute("""INSERT INTO portal_publications
         (id,portal_id,jurisdiction_id,title,document_type,issuer,text_rich,status,issued_at,published_at,external_reference)
@@ -113,9 +132,6 @@ def _record_adopted_act(c, item, current):
 
 def _finalize(c, session_id, current):
     session = _session(c, session_id)
-    if maybe(c, "SELECT id FROM senate_elections WHERE session_id=?", (session_id,)):
-        from app.senate_officers import finalize_election
-        return finalize_election(c, session_id, current)
     if session["status"] != "published":
         return session
     if _date(session["ends_at"], "ends_at") > datetime.now(timezone.utc):
@@ -123,6 +139,11 @@ def _finalize(c, session_id, current):
     present = _attendance(c, session_id)["present"]
     quorum_met = present >= session["quorum"]
     for item in _current_items(c, session_id):
+        election = maybe(c, 'SELECT id FROM senate_elections WHERE vote_id=?', (item['vote_id'],))
+        if election:
+            from app.senate_officers import finalize_election_item
+            finalize_election_item(c, election['id'], current, quorum_met)
+            continue
         tally, adopted = tally_votes(_choices(c, item["vote_id"]), item["rule"], item["threshold"])
         result = ("adopted" if adopted else "rejected") if quorum_met else "no_quorum"
         status = ("adopted" if adopted else "rejected") if quorum_met else "ready_plenary"
@@ -150,10 +171,6 @@ def finalize_due_sessions(c):
 
 
 def _detail(c, session_id, current=None):
-    election = maybe(c, "SELECT id FROM senate_elections WHERE session_id=?", (session_id,))
-    if election:
-        from app.senate_officers import election_detail_in_db
-        return election_detail_in_db(c, election["id"], current)
     session = _session(c, session_id)
     if session["status"] == "draft":
         if not current or current["id"] == "guest":
@@ -162,51 +179,79 @@ def _detail(c, session_id, current=None):
     result = {key: session[key] for key in ("id", "title", "starts_at", "ends_at", "status",
                                             "quorum", "published_at", "transcript", "creator_id")}
     result["items"] = _current_items(c, session_id)
+    hidden = session['status'] in {'draft', 'published'}
+    electorate = maybe(c, 'SELECT is_lieutenant FROM senate_session_electorate WHERE session_id=? AND user_id=?',
+                       (session_id, current['id'] if current else 'guest'))
+    result['can_vote'] = electorate is not None
+    result['results_hidden'] = hidden
     for item in result["items"]:
+        election = maybe(c, 'SELECT id FROM senate_elections WHERE vote_id=?', (item['vote_id'],))
+        if election:
+            from app.senate_officers import election_detail_in_db
+            election_data = election_detail_in_db(c, election['id'], current)
+            item.update(kind='election', election=election_data, my_choice=election_data['my_choice'])
+            item['category'] = {}
+            item.pop('category_json', None)
+            continue
         item["choices"] = _choices(c, item["vote_id"])
+        item['my_choice'] = next((r['choice'] for r in item['choices'] if current and r['voter_id'] == current['id']), None)
         item["tally"], _ = tally_votes(item["choices"], item["rule"], item["threshold"])
         revision = one(c, "SELECT text_rich FROM bill_revisions WHERE bill_id=? AND version=?",
                        (item["bill_id"], item["version"]))
         item["text_rich"] = revision["text_rich"]
         item["category"] = loads(item.pop("category_json"), {})
-    result["attendance"] = {**_attendance(c, session_id), "required": session["quorum"]}
+        meta = maybe(c, '''SELECT m.metadata_json FROM senate_revision_meta m JOIN bill_revisions r ON r.id=m.revision_id
+            WHERE r.bill_id=? AND r.version=?''', (item['bill_id'], item['version']))
+        if meta:
+            item['text_rich'] = loads(meta['metadata_json'], {}).get('document_rich') or item['text_rich']
+        if hidden:
+            item.update(choices=[], tally=None, result='pending')
+    attendance = _attendance(c, session_id)
+    own = next((p for p in attendance['participants'] if current and p['user_id'] == current['id']), None)
+    result['my_absent'] = bool(own and own['absent'])
+    result["attendance"] = {'required': session['quorum']} if hidden else {**attendance, 'required': session['quorum']}
     result["transcript_versions"] = allrows(c,
         "SELECT id,author_id,created_at FROM senate_session_transcripts WHERE session_id=? ORDER BY created_at",
         (session_id,))
-    return result
+    return visible_session(c, result, current)
 
 
 @router.get("/sessions")
 def sessions(current=Depends(optional_senate_actor)):
     with transaction() as c:
         finalize_due_sessions(c)
-        can_manage = current and (has_flag(c, current, "pro_tempore") or has_flag(c, current, "superadmin"))
+        can_manage = current and can_manage_sessions(c, current)
         sql = """SELECT s.id,s.title,d.starts_at,d.ends_at,d.status,d.quorum,d.published_at
             FROM legislative_sessions s JOIN senate_session_details d ON s.id=d.session_id"""
         if not can_manage:
             sql += " WHERE d.status!='draft'"
-        return allrows(c, sql + " ORDER BY d.starts_at DESC")
+        return [visible_session(c, row, current) for row in allrows(c, sql + " ORDER BY d.starts_at DESC")]
 
 
-@router.post("/sessions")
-def create_session(body: dict, current=Depends(senate_actor)):
+def _agenda_values(body):
     title = plain(body.get("title"), 250)
     if not title:
         fail(422, "TITLE_REQUIRED", "Укажите название заседания.")
     starts = _date(body.get("starts_at"), "starts_at")
     ends = _date(body.get("ends_at"), "ends_at")
-    if ends <= starts or ends <= datetime.now(timezone.utc):
-        fail(422, "INVALID_SESSION_DATES", "Окончание должно быть позже начала и текущего времени.")
+    if ends <= datetime.now(timezone.utc):
+        fail(422, "INVALID_SESSION_DATES", "ООС закрытие голосования должно быть в будущем.")
     bill_ids = body.get("bill_ids")
     if not isinstance(bill_ids, list) or not bill_ids or not all(isinstance(x, str) for x in bill_ids):
         fail(422, "BILLS_REQUIRED", "Выберите предметы повестки.")
     if len(set(bill_ids)) != len(bill_ids) or len(bill_ids) > 100:
         fail(422, "DUPLICATE_BILLS", "Повестка содержит повторения или более 100 предметов.")
+    return title, starts, ends, bill_ids
+
+
+@router.post("/sessions")
+def create_session(body: dict, current=Depends(senate_actor)):
+    title, starts, ends, bill_ids = _agenda_values(body)
     with transaction() as c:
         _manage(c, current)
         configured_quorum = setting(c, "quorum", 1)
-        quorum = body.get("quorum", configured_quorum)
-        if quorum != configured_quorum and not has_flag(c, current, "superadmin"):
+        quorum = configured_quorum
+        if 'quorum' in body and body['quorum'] != configured_quorum:
             fail(403, "QUORUM_ADMIN_ONLY", "Кворум задаёт суперадминистратор.")
         if type(quorum) is not int or not 1 <= quorum <= 10000:
             fail(422, "INVALID_QUORUM", "Кворум должен быть положительным целым числом.")
@@ -214,23 +259,51 @@ def create_session(body: dict, current=Depends(senate_actor)):
         c.execute("INSERT INTO legislative_sessions VALUES(?,?,?)", (session_id, title, starts.isoformat()))
         c.execute("""INSERT INTO senate_session_details(session_id,starts_at,ends_at,quorum,creator_id)
             VALUES(?,?,?,?,?)""", (session_id, starts.isoformat(), ends.isoformat(), quorum, current["id"]))
-        for position, bill_id in enumerate(bill_ids):
-            bill = one(c, "SELECT * FROM bills WHERE id=?", (bill_id,))
-            if bill["status"] != "ready_plenary":
-                fail(409, "BILL_NOT_READY", "В повестку можно включить только готовый к пленарному рассмотрению предмет.")
-            if maybe(c, """SELECT i.bill_id FROM senate_session_items i JOIN senate_session_details d
-                ON d.session_id=i.session_id WHERE i.bill_id=? AND d.status IN ('draft','published')""", (bill_id,)):
-                fail(409, "BILL_ALREADY_SCHEDULED", "Предмет уже включён в действующую повестку.")
-            meta = one(c, "SELECT * FROM senate_bill_meta WHERE bill_id=?", (bill_id,))
-            category = one(c, "SELECT * FROM senate_categories WHERE id=?", (meta["category_id"],))
-            vote_id = uid()
-            c.execute("INSERT INTO votes VALUES(?,?,?,?,?)", (vote_id, bill_id, session_id, "pending", ts()))
-            c.execute("""INSERT INTO senate_session_items
-                (session_id,bill_id,vote_id,position,version,rule,threshold,category_json)
-                VALUES(?,?,?,?,?,?,?,?)""", (session_id, bill_id, vote_id, position, meta["version"],
-                category["plenary_rule"], category["plenary_threshold"], dumps(category)))
+        _write_items(c, session_id, bill_ids)
         senate_audit(c, current, "session.create", "legislative_session", session_id, {},
               {"bill_ids": bill_ids, "starts_at": starts.isoformat(), "ends_at": ends.isoformat(), "quorum": quorum})
+        return _detail(c, session_id, current)
+
+
+def _write_items(c, session_id, bill_ids):
+    for position, bill_id in enumerate(bill_ids):
+        bill = one(c, "SELECT * FROM bills WHERE id=?", (bill_id,))
+        if bill["status"] != "ready_plenary":
+            fail(409, "BILL_NOT_READY", "В повестку можно включить только готовый к пленарному рассмотрению предмет.")
+        if maybe(c, """SELECT i.bill_id FROM senate_session_items i JOIN senate_session_details d
+            ON d.session_id=i.session_id WHERE i.bill_id=? AND i.session_id!=? AND d.status IN ('draft','published')""", (bill_id, session_id)):
+            fail(409, "BILL_ALREADY_SCHEDULED", "Предмет уже включён в действующую повестку.")
+        election = maybe(c, 'SELECT * FROM senate_elections WHERE bill_id=?', (bill_id,))
+        meta = {'version': 1} if election else one(c, "SELECT * FROM senate_bill_meta WHERE bill_id=?", (bill_id,))
+        category = {'plenary_rule': 'simple_majority', 'plenary_threshold': None} if election else one(c, "SELECT * FROM senate_categories WHERE id=?", (meta["category_id"],))
+        vote_id = uid()
+        c.execute("INSERT INTO votes VALUES(?,?,?,?,?)", (vote_id, bill_id, session_id, "pending", ts()))
+        c.execute("""INSERT INTO senate_session_items
+            (session_id,bill_id,vote_id,position,version,rule,threshold,category_json)
+            VALUES(?,?,?,?,?,?,?,?)""", (session_id, bill_id, vote_id, position, meta["version"],
+            category["plenary_rule"], category["plenary_threshold"], dumps(category)))
+        if election:
+            c.execute('UPDATE senate_elections SET session_id=?,vote_id=? WHERE id=?', (session_id, vote_id, election['id']))
+
+
+@router.put('/sessions/{session_id}')
+def update_session(session_id: str, body: dict, current=Depends(senate_actor)):
+    title, starts, ends, bill_ids = _agenda_values(body)
+    with transaction() as c:
+        _manage(c, current)
+        before = _session(c, session_id)
+        if before['status'] != 'draft':
+            fail(409, 'AGENDA_FROZEN', 'Опубликованная повестка не редактируется.')
+        if 'quorum' in body and body['quorum'] != setting(c, 'quorum', 1):
+            fail(403, 'QUORUM_ADMIN_ONLY', 'Кворум задаётся в настройках суперадминистратора.')
+        c.execute('UPDATE senate_elections SET session_id=NULL,vote_id=NULL WHERE session_id=?', (session_id,))
+        c.execute('DELETE FROM senate_session_items WHERE session_id=?', (session_id,))
+        c.execute('DELETE FROM votes WHERE session_id=?', (session_id,))
+        c.execute('UPDATE legislative_sessions SET title=?,held_at=? WHERE id=?', (title, starts.isoformat(), session_id))
+        c.execute('UPDATE senate_session_details SET starts_at=?,ends_at=?,quorum=? WHERE session_id=?',
+            (starts.isoformat(), ends.isoformat(), setting(c, 'quorum', 1), session_id))
+        _write_items(c, session_id, bill_ids)
+        senate_audit(c, current, 'session.update', 'legislative_session', session_id, before, body)
         return _detail(c, session_id, current)
 
 
@@ -239,15 +312,14 @@ def publish_session(session_id: str, current=Depends(senate_actor)):
     with transaction() as c:
         _manage(c, current)
         session = _session(c, session_id)
-        if maybe(c, "SELECT id FROM senate_elections WHERE session_id=?", (session_id,)):
-            fail(409, "ELECTION_ENDPOINT", "Для выборов используйте отдельную процедуру публикации.")
         if session["status"] != "draft":
             fail(409, "AGENDA_FROZEN", "Повестка уже опубликована и не может быть изменена.")
         now = datetime.now(timezone.utc)
         starts, ends = _date(session["starts_at"], "starts_at"), _date(session["ends_at"], "ends_at")
         notice = setting(c, "min_notice_hours", 0)
-        if starts < now + timedelta(hours=float(notice)) or ends <= now:
-            fail(422, "MIN_NOTICE", "Не соблюдён минимальный срок публикации повестки до заседания.")
+        if ends <= now:
+            fail(422, "INVALID_SESSION_DATES", "ООС время закрытия уже наступило.")
+        c.execute("UPDATE senate_session_details SET quorum=? WHERE session_id=?", (setting(c, "quorum", 1), session_id))
         users = known_users(c)
         senators = [user for user in users if has_flag(c, {"id": user["id"], "roles": set(user.get("roles", []))}, "senator")]
         lieutenants = [user for user in users if has_flag(c, {"id": user["id"], "roles": set(user.get("roles", []))}, "lieutenant_governor")]
@@ -261,6 +333,12 @@ def publish_session(session_id: str, current=Depends(senate_actor)):
             bill = one(c, "SELECT * FROM bills WHERE id=?", (item["bill_id"],))
             if bill["status"] != "ready_plenary":
                 fail(409, "BILL_NOT_READY", "Один из предметов больше не готов к рассмотрению.")
+            election = maybe(c, 'SELECT id FROM senate_elections WHERE bill_id=?', (item['bill_id'],))
+            if election:
+                from app.senate_officers import publish_election_item
+                publish_election_item(c, election['id'], senators, current)
+                c.execute("UPDATE bills SET status='agenda_published' WHERE id=?", (item['bill_id'],))
+                continue
             meta = one(c, "SELECT * FROM senate_bill_meta WHERE bill_id=?", (item["bill_id"],))
             category = one(c, "SELECT * FROM senate_categories WHERE id=?", (meta["category_id"],))
             rule, threshold = category["plenary_rule"], category["plenary_threshold"]
@@ -307,22 +385,26 @@ def cast_vote(session_id: str, body: dict, current=Depends(senate_actor)):
         if not voter:
             fail(403, "NOT_IN_ELECTORATE", "Вы не входите в состав голосующих этого заседания.")
         item = one(c, "SELECT * FROM senate_session_items WHERE session_id=? AND bill_id=?", (session_id, bill_id))
-        absent = maybe(c, """SELECT 1 FROM vote_choices vc JOIN votes v ON v.id=vc.vote_id
-            WHERE v.session_id=? AND vc.voter_id=? AND vc.choice='absent'""", (session_id, current["id"]))
-        items = _current_items(c, session_id) if choice == "absent" else [item]
-        before = allrows(c, """SELECT vc.* FROM vote_choices vc JOIN votes v ON v.id=vc.vote_id
-            WHERE v.session_id=? AND vc.voter_id=?""", (session_id, current["id"]))
-        if absent and choice != "absent":
-            c.execute("""DELETE FROM vote_choices WHERE voter_id=? AND choice='absent' AND vote_id IN
-                (SELECT id FROM votes WHERE session_id=?)""", (current["id"], session_id))
-        for target in items:
-            c.execute("""INSERT INTO vote_choices(vote_id,voter_id,choice) VALUES(?,?,?)
-                ON CONFLICT(vote_id,voter_id) DO UPDATE SET choice=excluded.choice""", (target["vote_id"], current["id"], choice))
-        senate_audit(c, current, "vote.cast", "legislative_session", session_id,
-              {"choices": before}, {"bill_id": bill_id, "choice": choice})
-        return {"choice": choice, "bill_id": bill_id, "session_id": session_id, "saved_at": ts(),
-                "cascaded": choice == "absent"}
+        if maybe(c, 'SELECT id FROM senate_elections WHERE vote_id=?', (item['vote_id'],)) and choice not in {'absent', 'abstain'}:
+            fail(422, 'CANDIDATE_REQUIRED', 'По этому предмету нужно выбрать кандидата.')
+        _cast_choice(c, session_id, item, choice, current)
+        return {'choice': choice, 'bill_id': bill_id, 'session_id': session_id, 'saved_at': ts(), 'cascaded': choice == 'absent'}
 
+
+def _cast_choice(c, session_id, item, choice, current):
+    absent = maybe(c, """SELECT 1 FROM vote_choices vc JOIN votes v ON v.id=vc.vote_id
+        WHERE v.session_id=? AND vc.voter_id=? AND vc.choice='absent'""", (session_id, current["id"]))
+    items = _current_items(c, session_id) if choice == "absent" else [item]
+    before = allrows(c, """SELECT vc.* FROM vote_choices vc JOIN votes v ON v.id=vc.vote_id
+        WHERE v.session_id=? AND vc.voter_id=?""", (session_id, current["id"]))
+    if absent and choice != "absent":
+        c.execute("""DELETE FROM vote_choices WHERE voter_id=? AND choice='absent' AND vote_id IN
+            (SELECT id FROM votes WHERE session_id=?)""", (current["id"], session_id))
+    for target in items:
+        c.execute("""INSERT INTO vote_choices(vote_id,voter_id,choice) VALUES(?,?,?)
+            ON CONFLICT(vote_id,voter_id) DO UPDATE SET choice=excluded.choice""", (target["vote_id"], current["id"], choice))
+    senate_audit(c, current, "vote.cast", "legislative_session", session_id,
+          {"choices": before}, {"bill_id": item['bill_id'], "choice": choice})
 
 @router.post("/sessions/{session_id}/restore-presence")
 def restore_presence(session_id: str, current=Depends(senate_actor)):
@@ -377,25 +459,19 @@ def export_session_pdf(session_id: str, current=Depends(optional_senate_actor), 
     with transaction() as c:
         finalize_due_sessions(c)
         session = _detail(c, session_id, current)
-        if session.get("kind") == "election":
-            names = {candidate["id"]: candidate["name"] for candidate in session["candidates"]}
-            sections = [("Выборы Pro Tempore", "Статус: " + display(session["status"]) +
-                "\nНачало: " + display_time(session["starts_at"], zone) + "\nОкончание: " + display_time(session["ends_at"], zone) +
-                "\nКворум: " + str(session["quorum"]) + "\nПравило: " + display(session["rule"]) +
-                "\nПобедитель: " + names.get(session["winner_id"], session["winner_id"] or "Не определён"))]
-            sections.append(("Кандидаты и итоги", "\n".join(
-                names[row["candidate_id"]] + " (" + row["candidate_id"] + "): " + str(row["count"])
-                for row in session["tally"])))
-            sections.append(("Поимённые голоса", "\n".join(
-                row["voter_id"] + ": " + names.get(row["candidate_id"], row["candidate_id"])
-                for row in session["choices"]) or "Голоса не поданы."))
-            return pdf_response(session["title"], sections, "senate-election-" + session_id + ".pdf")
-        sections = [("Сведения о заседании", "Начало: " + display_time(session["starts_at"], zone) + "\nОкончание: " + display_time(session["ends_at"], zone) +
+        sections = [("Сведения о заседании", "Дата заседания: " + display_time(session["starts_at"], zone) + ("\nООС закрытие: " + display_time(session['ends_at'], zone) if 'ends_at' in session else '') +
                      "\nСтатус: " + display(session["status"]) + "\nКворум: " + str(session["quorum"]) + "\nЧасовой пояс: " + time_zone)]
         for item in session["items"]:
+            if item.get('kind') == 'election':
+                election = item['election']
+                names = {candidate['id']: candidate['name'] for candidate in election['candidates']}
+                sections.append((item['title'], 'Результаты скрыты до закрытия голосования.' if election['results_hidden'] else
+                    'Победитель: ' + names.get(election['winner_id'], 'Не определён') + '\n' + '\n'.join(
+                        row['voter_id'] + ': ' + names.get(row['candidate_id'], display(row['candidate_id'])) for row in election['choices'])))
+                continue
             votes = "\n".join(row["voter_id"] + ": " + display(row["choice"]) for row in item["choices"])
             sections.append((item["title"], "Редакция: " + str(item["version"]) + "\nПравило: " + display(item["rule"]) +
-                "\nРезультат: " + display(item["result"]) + "\n" + votes))
+                ('\nРезультаты скрыты до закрытия голосования.' if session['results_hidden'] else "\nРезультат: " + display(item["result"]) + "\n" + votes)))
         sections.append(("Стенограмма", session["transcript"] or "Не загружена."))
         return pdf_response(session["title"], sections, "senate-session-" + session_id + ".pdf")
 
@@ -427,7 +503,7 @@ def admin_correction(session_id: str, body: dict, current=Depends(senate_actor))
         if not has_flag(c, current, "superadmin"):
             fail(403, "FORBIDDEN", "Исправление доступно суперадминистратору.")
         session = _session(c, session_id)
-        if maybe(c, "SELECT id FROM senate_elections WHERE session_id=?", (session_id,)):
+        if maybe(c, "SELECT id FROM senate_elections WHERE session_id=? AND bill_id=?", (session_id, bill_id)):
             fail(409, "ELECTION_CORRECTION", "Голоса за кандидатов не исправляются как голоса по законопроектам.")
         if session["status"] == "draft":
             fail(409, "NOT_PUBLISHED", "Повестка ещё не опубликована.")
@@ -477,7 +553,11 @@ def admin_resolution(session_id: str, body: dict, current=Depends(senate_actor))
         if session["status"] != "needs_review":
             fail(409, "NO_PENDING_CORRECTION", "Заседание не ожидает решения по исправлению.")
         _guard_newer_agenda(c, session_id)
-        items = _current_items(c, session_id)
+        all_items = _current_items(c, session_id)
+        if any(maybe(c, "SELECT id FROM senate_elections WHERE vote_id=?", (item['vote_id'],)) and
+               item['result'] == 'needs_review' for item in all_items):
+            fail(409, 'ELECTION_REVIEW_REQUIRED', 'Сначала утвердите исправленные результаты выборов про темпоре.')
+        items = [item for item in all_items if not maybe(c, 'SELECT id FROM senate_elections WHERE vote_id=?', (item['vote_id'],))]
         if set(results) != {item["bill_id"] for item in items}:
             fail(422, "ALL_RESULTS_REQUIRED", "Нужно явно решить судьбу всех предметов повестки.")
         if "no_quorum" in results.values() and set(results.values()) != {"no_quorum"}:

@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.core import conn, ts
+from app.core import conn, ts, read_db
 from app.senate_sessions import tally_votes
 
 API = "/api/v1/senate"
@@ -26,6 +26,7 @@ def _ready_bill(client, title="Поправка к закону"):
 
 
 def _agenda(client, bill_ids, quorum=1):
+    client.put(API + "/admin/settings", headers=ADMIN, json={"quorum": quorum})
     now = datetime.now(timezone.utc)
     response = client.post(API + "/sessions", headers=ADMIN, json={
         "title": "Пленарное заседание", "starts_at": (now + timedelta(hours=1)).isoformat(),
@@ -112,14 +113,14 @@ def test_absence_cascades_then_new_vote_clears_other_marks(client):
     for bill, choice in [(first, "yes"), (second, "absent")]:
         response = client.post(url + "/votes", headers=SENATOR, json={"bill_id": bill, "choice": choice})
         assert response.status_code == 200, response.text
-    data = client.get(url).json()
-    assert data["attendance"]["present"] == 0
-    assert all(item["choices"][0]["choice"] == "absent" for item in data["items"])
+    data = client.get(url, headers=SENATOR).json()
+    assert data["my_absent"] is True
+    assert all(item["my_choice"] == "absent" and item["choices"] == [] for item in data["items"])
     response = client.post(url + "/votes", headers=SENATOR, json={"bill_id": first, "choice": "no"})
     assert response.status_code == 200, response.text
-    data = client.get(url).json()
-    assert data["attendance"]["present"] == 1
-    assert data["items"][0]["choices"][0]["choice"] == "no"
+    data = client.get(url, headers=SENATOR).json()
+    assert data["my_absent"] is False
+    assert data["items"][0]["my_choice"] == "no"
     assert data["items"][1]["choices"] == []
     c = conn()
     assert c.execute("SELECT COUNT(*) FROM audit_events WHERE action='senate.vote.cast'").fetchone()[0] == 3
@@ -189,8 +190,9 @@ def test_admin_correction_requires_permission_reason_and_cascades_absence(client
     result = client.post(url+"/admin-correction", headers=ADMIN, json=body)
     assert result.status_code == 200, result.text
     data = result.json()
-    assert data["status"] == "published" and data["attendance"]["present"] == 0
-    assert all(item["choices"][0]["choice"] == "absent" for item in data["items"])
+    assert data["status"] == "published" and "present" not in data["attendance"]
+    with read_db() as c:
+        assert c.execute("SELECT COUNT(*) FROM vote_choices WHERE choice='absent'").fetchone()[0] == 2
     result = client.post(url+"/admin-correction", headers=ADMIN, json={**body, "choice":"yes"})
     assert result.status_code == 200
     assert result.json()["items"][1]["choices"] == []

@@ -155,6 +155,9 @@
     const d = new DOMParser().parseFromString(String(v || ""), "text/html");
     return d.body.textContent || "";
   }
+  function paragraphText(v) {
+    return stripped(String(v || "").replace(/<\/(?:p|h[1-6]|li|blockquote)>|<br\s*\/?>/gi, "\n")).trim();
+  }
   function headers() {
     const h = { Accept: "application/json" };
     if (state.auth?.mode === "demo" && state.role)
@@ -229,7 +232,7 @@
     !!state.me?.capabilities?.create_bill ||
     isFlag("senator") ||
     isFlag("legislator");
-  const canManageSessions = () => isAdmin() || isFlag("pro_tempore");
+  const canManageSessions = () => !!state.me?.capabilities?.manage_sessions;
   function signedIn() {
     if (state.me) return true;
     content.innerHTML =
@@ -357,6 +360,7 @@
     return `<p class="breadcrumbs"><a href="#home">Главная</a> / ${esc(title)}</p>`;
   }
   async function render() {
+    editorCapture();
     state.navigationController?.abort();
     state.navigationController = new AbortController();
     const id = ++state.routeId,
@@ -439,7 +443,7 @@
     for (let i = 0; i < 42; i++) {
       const d = new Date(year, month, 1 - offset + i),
         current = d.getMonth() === month;
-      const matches = arr(state.public.sessions).filter(
+      const matches = [...arr(state.public.sessions), ...arr(state.public.committee_agendas)].filter(
         (s) =>
           new Date(s.starts_at || s.held_at).toDateString() ===
           d.toDateString(),
@@ -453,7 +457,7 @@
         .join(" ");
       const dest =
         matches.length === 1
-          ? "session/" + encodeURIComponent(matches[0].id)
+          ? matches[0].committee_id ? "committee/" + encodeURIComponent(matches[0].committee_id) + "?agenda=" + encodeURIComponent(matches[0].id) : "session/" + encodeURIComponent(matches[0].id)
           : "sessions?date=" +
             `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       cells += `${i % 7 === 0 ? "<tr>" : ""}<td class="${classes}"><a href="#${dest}" aria-label="${date(d.toISOString())}${matches.length ? ", заседаний: " + matches.length : ""}">${d.getDate()}</a></td>${i % 7 === 6 ? "</tr>" : ""}`;
@@ -600,13 +604,13 @@
         )
         .join(
           "",
-        )}</select></div>${chosen !== b.version ? '<div class="notice">Вы просматриваете прежнюю редакцию. Для текущего текста выберите последнюю редакцию в списке.</div>' : ""}<article class="document-text">${rich(rev?.text_rich || b.text_rich)}</article>`;
+        )}</select></div>${chosen !== b.version ? '<div class="notice">Вы просматриваете прежнюю редакцию. Для текущего текста выберите последнюю редакцию в списке.</div>' : ""}<article class="document-text">${rich(rev?.document_rich || b.document_rich || b.text_rich)}</article>`;
     } else if (tab === "changes") {
       body = arr(b.changes).length
         ? b.changes
             .map(
               (ch) =>
-                `<section class="change-row"><h3>${esc({ add: "Добавление", amend: "Изменение", repeal: "Отмена" }[ch.operation] || ch.operation)} · ${esc(ch.title || ch.article?.title || ch.target?.number || ch.article_id || "Новое положение")}</h3><p class="small-text muted">ID: ${esc(ch.target?.article_id || ch.article_id || ch.target?.node_id || "Новая статья")}</p><div class="compare-grid"><div><h4>Исходная редакция</h4>${rich(ch.original_text || ch.base_text || ch.source_text_rich || ch.source?.text_rich || ch.original?.text_rich || "Не применимо")}</div><div><h4>Предлагаемая редакция</h4>${ch.operation === "repeal" ? "<p>Положение предлагается отменить.</p>" : rich(ch.text_rich || ch.article?.text_rich || "")}</div></div></section>`,
+                `<section class="change-row"><h3>${esc({ add: "Добавление", amend: "Изменение", repeal: "Отмена" }[ch.operation] || ch.operation)} · ${esc(ch.title || ch.article?.title || ch.target?.number || ch.article_id || "Новое положение")}</h3><p class="small-text muted">${esc(articleRef({...ch.target, number:ch.article?.number || ch.target?.number}))}</p><div class="compare-grid"><div><h4>Исходная редакция</h4>${rich(ch.original_text || ch.base_text || ch.source_text_rich || ch.source?.text_rich || ch.original?.text_rich || "Не применимо")}</div><div><h4>Предлагаемая редакция</h4>${ch.operation === "repeal" ? "<p>Положение предлагается отменить.</p>" : rich(ch.text_rich || ch.article?.text_rich || "")}</div></div></section>`,
             )
             .join("")
         : empty(
@@ -657,7 +661,7 @@
           .filter((x) => x.status === "accepted")
           .map((x) => esc(x.name || x.user_id))
           .join(", ") || "Нет подтверждённых соавторов"
-      }</dd></div><div><dt>Тип документа</dt><dd>${esc(label(state.config.document_types, b.document_type))}</dd></div><div><dt>Категория</dt><dd>${esc(label(state.config.categories, b.category_id))}</dd></div><div><dt>Дата подачи</dt><dd>${b.submitted_at ? date(b.submitted_at) : "Ещё не подан"}</dd></div><div><dt>Вступление в силу</dt><dd>${date(b.effective_at)}</dd></div></dl><nav class="tabs" aria-label="Разделы документа">${[
+      }</dd></div><div><dt>Тип документа</dt><dd>${esc(label(state.config.document_types, b.document_type))}</dd></div><div><dt>Категория</dt><dd>${esc(label(state.config.categories, b.category_id))}</dd></div><div><dt>Дата подачи</dt><dd>${b.submitted_at ? date(b.submitted_at) : "Ещё не подан"}</dd></div><div><dt>Вступление в силу</dt><dd>${esc(effectiveText(b))}</dd></div></dl><nav class="tabs" aria-label="Разделы документа">${[
         ["text", "Текст"],
         ["changes", "Поправки"],
         ["reviews", "Рассмотрение"],
@@ -672,334 +676,197 @@
           "",
         )}</nav>${body}${isAdmin() ? `<details class="panel"><summary>Административное исправление предмета</summary><form id="billCorrectionForm" data-id="${esc(id)}" data-version="${b.version}">${field("title", "Исправленное название", b.title)}${select("status", "Состояние", [{ id: "", name: "Оставить текущее" }, ...["draft", "committee_review", "held", "revision_requested", "ready_plenary", "adopted", "rejected", "committee_rejected"].map((v) => ({ id: v, name: statusNames[v] }))])}${textArea("reason", "Основание исправления", "", "required")}<p class="small-text muted">Исходные значения сохранятся в журнале. Изменение итогового статуса не применяет закон к библиотеке.</p><div class="form-error" role="alert"></div><button type="submit">Сохранить исправление</button></form></details>` : ""}${editable ? `<details class="panel"><summary>Пригласить соавтора</summary><form id="coauthorForm" data-id="${esc(id)}">${field("user_id", "Идентификатор зарегистрированного пользователя", "", "text", "required")}<p class="small-text muted">Соавторство начнёт действовать после подтверждения приглашения.</p><div class="form-error" role="alert"></div><button type="submit">Отправить приглашение</button></form></details>` : ""}`;
   }
+  const effectiveOptions = [
+    { id: "standard", name: "Стандартное правило: спустя 14 дней после принятия" },
+    { id: "immediate", name: "Немедленное действие: сразу после принятия" },
+    { id: "specified_date", name: "Отдельная дата применения" },
+  ];
+  const effectiveText = (e) => e.effective_rule === "specified_date" ? date(e.effective_at)
+    : e.effective_rule === "immediate" ? "Немедленно после подписания губернатором" : "Спустя 14 дней после подписания губернатором";
+  const articleRef = (a) => `${a.code_abbreviation || state.editorCatalog?.codes?.find(c => c.id === a.code_id)?.abbreviation || ""} §${a.number || "…"}`.trim();
+  const editorCacheKey = (id) => `senate:editor:v2:${state.me?.id || "guest"}:${id}`;
+  function cacheEditor() {
+    if (!state.editor || !state.me) return;
+    try {
+      localStorage.setItem(editorCacheKey(state.editor.id), JSON.stringify(state.editor));
+      state.cacheFailed = false;
+    } catch {
+      state.cacheFailed = true;
+    }
+    const note = document.querySelector("#editorCacheStatus");
+    if (note) note.textContent = state.cacheFailed ? "Не удалось сохранить на этом устройстве. Сохраните черновик на сервере." : "Изменения сохранены на этом устройстве";
+  }
+  function editorPayload(e) {
+    return { title: e.title, text_rich: e.text_rich, document_type: e.document_type,
+      category_id: e.category_id, effective_rule: e.effective_rule,
+      effective_at: e.effective_rule === "specified_date" ? e.effective_at || null : null,
+      changes: e.changes, ...(e.author_id && e.author_id !== state.me.id ? {} : { coauthor_ids: e.coauthor_ids }) };
+  }
   function editorCapture() {
     if (!state.editor) return;
     const form = document.querySelector("#billEditor");
     if (!form) return;
-    for (const name of [
-      "title",
-      "document_type",
-      "category_id",
-      "effective_at",
-    ])
-      if (form.elements[name]) state.editor[name] = form.elements[name].value;
-    const richBox = document.querySelector("#richEditor");
-    if (richBox) state.editor.text_rich = rich(richBox.innerHTML);
-    for (const row of document.querySelectorAll("[data-change-index]")) {
-      const ch = state.editor.changes[Number(row.dataset.changeIndex)];
-      if (row.querySelector("select"))
-        ch.operation = row.querySelector("select").value;
-      if (row.querySelector("textarea")) {
-        ch.text_rich =
-          "<p>" +
-          esc(row.querySelector("textarea").value).replace(/\n/g, "</p><p>") +
-          "</p>";
-        ch.article = { ...(ch.article || {}), text_rich: ch.text_rich };
-      }
-      for (const input of row.querySelectorAll("[data-change-field]")) {
-        const name = input.dataset.changeField;
-        if (name === "code_id") {
-          ch.code_id = input.value;
-          ch.target = { ...(ch.target || {}), code_id: input.value };
-        } else {
-          ch.article = { ...(ch.article || {}), [name]: input.value };
-          ch[name] = input.value;
-        }
+    const e = state.editor;
+    for (const name of ["title", "document_type", "category_id", "effective_at", "effective_rule"])
+      if (form.elements[name]) e[name] = form.elements[name].value;
+    if (form.querySelector("#coauthorChoices")) e.coauthor_ids = [...form.querySelectorAll('[name="coauthor_ids"]:checked')].map(x => x.value);
+    const box = form.querySelector("#richEditor");
+    if (box) e.text_rich = rich(box.innerHTML);
+    for (const row of form.querySelectorAll("[data-change-index]")) {
+      const ch = e.changes[Number(row.dataset.changeIndex)];
+      ch.operation = row.querySelector("[data-operation]").value;
+      ch.article ||= {};
+      ch.target ||= {};
+      const text = row.querySelector("[data-change-text]");
+      if (text && text.value !== paragraphText(ch.article.text_rich)) ch.article.text_rich = "<p>" + esc(text.value).replace(/\n/g, "</p><p>") + "</p>";
+      for (const input of row.querySelectorAll("[data-article-field]")) ch.article[input.dataset.articleField] = input.value;
+      for (const input of row.querySelectorAll("[data-target-field]")) ch.target[input.dataset.targetField] = input.value || null;
+      if (row.querySelector("[data-category]")) ch.article.categories = [...row.querySelectorAll("[data-category]:checked")].map(x => x.value);
+      const criminal = row.querySelector("[data-criminal-class]");
+      if (criminal) ch.article.criminal_class = criminal.value || null;
+      ch.article.sanctions ||= {};
+      for (const input of row.querySelectorAll("[data-sanction]")) ch.article.sanctions[input.dataset.sanction] = input.value === "" ? null : Number(input.value);
+      ch.article.custom_values ||= {};
+      for (const input of row.querySelectorAll("[data-custom]")) {
+        const key = input.dataset.custom, type = input.dataset.customType;
+        if (type === "range") {
+          const bounds = [...row.querySelectorAll("[data-custom]")].filter(x => x.dataset.custom === key);
+          ch.article.custom_values[key] = bounds.every(x => x.value === "") ? null : bounds.map(x => Number(x.value));
+        } else ch.article.custom_values[key] = input.multiple ? [...input.selectedOptions].map(x => x.value)
+          : input.value === "" ? null : type === "number" ? Number(input.value) : type === "boolean" ? input.value === "true" : input.value;
       }
     }
+    cacheEditor();
   }
   async function editor(id) {
     if (!signedIn()) return;
-    if (!canCreate() && !isAdmin()) {
-      content.innerHTML =
-        heading("Редактор проектов") +
-        empty("Право подачи есть только у сенаторов");
+    const key = id || "new";
+    if (key === "new" && !canCreate()) {
+      content.innerHTML = heading("Редактор проектов") + empty("Право создания проекта есть только у сенаторов");
       return;
     }
-    const key = id || "new";
+    state.editorCatalog = await api("/senate/library?catalog=true");
+    state.coauthorCandidates = await api("/senate/coauthor-candidates");
     if (!state.editor || state.editor.id !== key) {
-      const b =
-        key !== "new"
-          ? await api("/senate/bills/" + encodeURIComponent(key))
-          : {};
-      state.editor = {
-        ...b,
-        id: key,
-        title: b.title || "",
-        document_type:
-          b.document_type ||
-          state.config.document_types.find((t) => t.active)?.id ||
-          "senate_bill",
-        category_id:
-          b.category_id ||
-          state.config.categories.find((t) => t.active)?.id ||
-          "general",
-        effective_at: b.effective_at?.slice(0, 10) || "",
-        text_rich: b.text_rich || "<p></p>",
-        changes: arr(b.changes).map((x) => ({ ...x })),
-        step: 0,
-      };
+      const b = key === "new" ? {} : await api("/senate/bills/" + encodeURIComponent(key));
+      let cached;
+      try { cached = JSON.parse(localStorage.getItem(editorCacheKey(key)) || "null"); } catch {}
+      state.editor = { ...b, id: key, title: b.title || "", document_type: b.document_type || "senate_bill",
+        category_id: b.category_id || "general", effective_rule: b.effective_rule || "standard",
+        effective_at: b.effective_at?.slice(0,10) || "", text_rich: b.text_rich || "",
+        coauthor_ids: arr(b.coauthors).filter(c => c.status !== "declined").map(c => c.user_id), changes: arr(b.changes), step: 0 };
+      if (cached?.id === key && Array.isArray(cached.changes)) {
+        state.editor = { ...state.editor, ...cached, conflict: key !== "new" && cached.version !== b.version };
+        state.editor.restored = true;
+      }
     }
-    drawEditor();
+    await drawEditor();
   }
-  function drawEditor() {
-    const e = state.editor,
-      type = state.config.document_types.find((t) => t.id === e.document_type);
-    let required = [];
-    try {
-      required = Array.isArray(type?.required_fields)
-        ? type.required_fields
-        : JSON.parse(type?.required_fields_json || "[]");
-    } catch {}
-    const requiredLabels = {
-      title: "Название",
-      text_rich: "Текст проекта",
-      effective_at: "Дата вступления в силу",
-      changes: "Поправки",
-      category_id: "Категория",
-    };
-    let body = "";
-    if (e.step === 0)
-      body = `<div class="form-grid"><label class="field full"><span>Название проекта *</span><input name="title" maxlength="250" required value="${esc(e.title)}"></label><div>${select(
-        "document_type",
-        "Тип документа",
-        state.config.document_types.filter(
-          (t) => t.active || t.id === e.document_type,
-        ),
-        e.document_type,
-      )}<p id="typeRequirements" class="small-text muted">Обязательные поля типа: ${required.map((k) => esc(requiredLabels[k] || k)).join(", ") || "название и текст проекта"}.</p>${type?.template ? button("Вставить шаблон типа", "use-template", 'class="secondary small"') : ""}</div>${select(
-        "category_id",
-        "Категория",
-        state.config.categories.filter(
-          (c) => c.active || c.id === e.category_id,
-        ),
-        e.category_id,
-      )}${field("effective_at", "Дата вступления в силу", e.effective_at, "date")}<div class="full"><label id="textLabel" class="field"><span>Текст проекта *</span></label><div class="rich-toolbar" aria-label="Форматирование текста">${[
-        ["bold", "Жирный"],
-        ["italic", "Курсив"],
-        ["insertUnorderedList", "Список"],
-      ]
-        .map(([cmd, n]) =>
-          button(n, "format", `data-command="${cmd}" class="secondary small"`),
-        )
-        .join(
-          "",
-        )}</div><div id="richEditor" class="rich-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="textLabel">${rich(e.text_rich)}</div></div></div>`;
-    else if (e.step === 1)
-      body = `<p>Выберите положения правовой библиотеки, которые проект добавляет, изменяет или отменяет. Для резолюций список может быть пустым.</p><div class="filters"><label><span>Поиск в правовой библиотеке</span><input id="libraryQuery" type="search" placeholder="Номер или название статьи"></label>${button("Найти положение", "library-search")}</div><div id="libraryResults"></div><div class="actions">${button("Добавить новую статью", "add-change", 'class="secondary"')}</div><div id="changeList">${e.changes
-        .map(
-          (ch, i) =>
-            `<section class="change-row" data-change-index="${i}"><header><h3>${esc(ch.title || ch.article?.title || ch.target?.number || ch.article_id || "Новая статья")}</h3>${button("Убрать", "remove-change", `data-index="${i}" class="text-button"`)}</header><p class="small-text muted">${esc(ch.target?.article_id || ch.article_id || "Новое положение")}</p>${ch.operation === "add" ? `<div class="form-grid"><label class="field"><span>ID кодекса *</span><input data-change-field="code_id" value="${esc(ch.target?.code_id || ch.code_id || "")}" placeholder="ID из правовой библиотеки"></label><label class="field"><span>Номер новой статьи *</span><input data-change-field="number" value="${esc(ch.article?.number || ch.number || "")}"></label><label class="field full"><span>Заголовок статьи *</span><input data-change-field="title" value="${esc(ch.article?.title || ch.title || "")}"></label></div>` : ""}<label class="field"><span>Действие</span><select>${[
-              ["amend", "Изменить"],
-              ["repeal", "Отменить"],
-              ["add", "Добавить"],
-            ]
-              .map(
-                ([v, n]) =>
-                  `<option value="${v}" ${ch.operation === v ? "selected" : ""}>${n}</option>`,
-              )
-              .join(
-                "",
-              )}</select></label><div class="compare-grid"><div><h4>Исходный текст</h4>${rich(ch.original_text || ch.base_text || ch.source_text_rich || ch.source?.text_rich || "Новая статья")}</div><div><label class="field"><span>Предлагаемый текст</span><textarea>${esc(stripped(ch.text_rich || ch.article?.text_rich || ""))}</textarea></label></div></div></section>`,
-        )
-        .join("")}</div>`;
-    else
-      body = `<h2>${esc(e.title || "Проект без названия")}</h2><dl class="metadata"><div><dt>Тип</dt><dd>${esc(label(state.config.document_types, e.document_type))}</dd></div><div><dt>Категория</dt><dd>${esc(label(state.config.categories, e.category_id))}</dd></div><div><dt>Вступление в силу</dt><dd>${date(e.effective_at)}</dd></div></dl><article class="document-text">${rich(e.text_rich)}</article><p>Изменений положений библиотеки: ${e.changes.length}.</p><div class="notice">После подачи проект поступит в Rules Committee. Подача и сохранение черновика являются разными действиями.</div>`;
-    content.innerHTML =
-      breadcrumbs("Редактор проекта") +
-      heading(
-        e.id === "new" ? "Новый проект" : "Редактирование проекта",
-        "Изменения сохраняются отдельными редакциями",
-      ) +
-      `<div class="editor-steps">${["Реквизиты и текст", "Изменения в законах", "Проверка и подача"].map((n, i) => button(`${i + 1}. ${n}`, "editor-step", `data-step="${i}" class="${e.step === i ? "active" : ""}"`)).join("")}</div><form id="billEditor"><div>${body}</div><div class="form-error" role="alert"></div><div class="form-status" role="status"></div><div class="form-actions"><a href="${e.id === "new" ? "#cabinet" : "#bill/" + esc(e.id)}" class="button secondary">К документу</a>${button("Сохранить черновик", "save-draft", 'class="secondary"')}${e.step < 2 ? button("Продолжить", "editor-step", `data-step="${e.step + 1}"`) : button("Сохранить и подать", "save-submit")}</div></form>`;
+  function customFieldHtml(f, value) {
+    const attrs = `data-custom="${esc(f.id)}" data-custom-type="${esc(f.field_type)}"`;
+    const opts = arr(state.editorCatalog.options).filter(o => o.field_id === f.id);
+    if (f.field_type === "choice" || f.field_type === "boolean") {
+      const choices = f.field_type === "boolean" ? [{id:"true",name:"Да"},{id:"false",name:"Нет"}] : opts;
+      return `<label class="field"><span>${esc(f.name)}</span><select ${attrs} ${f.selection_mode === "multiple" ? "multiple" : ""}><option value="">Не указано</option>${choices.map(o => `<option value="${esc(o.id)}" ${arr(Array.isArray(value) ? value : [String(value)]).includes(o.id) ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select></label>`;
+    }
+    if (f.field_type === "range") return `<fieldset class="field"><legend>${esc(f.name)}</legend><div class="form-grid">${[0,1].map((i) => `<label>${i ? "До" : "От"}<input type="number" step="any" ${attrs} value="${esc(value?.[i] ?? "")}"></label>`).join("")}</div></fieldset>`;
+    return `<label class="field"><span>${esc(f.name)}</span>${f.field_type === "rich_text" ? `<textarea ${attrs}>${esc(stripped(value || ""))}</textarea>` : `<input ${attrs} type="${f.field_type === "number" ? "number" : "text"}" step="any" value="${esc(value ?? "")}">`}</label>`;
+  }
+  function changeHtml(ch, i) {
+    const a = ch.article || {}, t = ch.target || {}, cat = state.editorCatalog;
+    const isNode = !!t.node_id, adding = ch.operation === "add", repealing = ch.operation === "repeal";
+    const codes = cat.codes, nodes = cat.all_nodes.filter(n => n.code_id === t.code_id);
+    const articles = cat.article_index.filter(n => n.code_id === t.code_id);
+    const selectOptions = (items, value) => items.map(o => `<option value="${esc(o.id)}" ${o.id === value ? "selected" : ""}>${esc(o.name || o.title)}</option>`).join("");
+    const categories = cat.categories.filter(c => !c.code_id || c.code_id === t.code_id);
+    return `<section class="change-row" data-change-index="${i}"><header><h3>${esc(articleRef({...t, number: a.number || t.number}))} · ${esc(a.title || "Новая статья")}</h3>${button("Убрать", "remove-change", `data-index="${i}" class="text-button"`)}</header>
+      <div class="form-grid"><label class="field"><span>Действие</span><select data-operation>${(adding ? [["add","Добавить"]] : [["amend","Изменить"],["repeal","Отменить"]]).map(([v,n]) => `<option value="${v}" ${ch.operation === v ? "selected" : ""}>${n}</option>`).join("")}</select></label>
+      ${adding ? `<label class="field"><span>Кодекс *</span><select data-target-field="code_id" required><option value="">Выберите кодекс</option>${selectOptions(codes, t.code_id)}</select></label><label class="field"><span>Раздел кодекса</span><select data-target-field="parent_id"><option value="">Корень кодекса</option>${selectOptions(nodes.map(n => ({id:n.id,name:`${n.number} · ${n.title}`})),t.parent_id)}</select></label><label class="field"><span>Разместить после существующей статьи</span><select data-target-field="after_article_id"><option value="">Без привязки к статье</option>${selectOptions(articles.map(n=>({id:n.id,name:`${articleRef(n)} · ${n.title}`})),t.after_article_id)}</select></label>` : ""}
+      ${!repealing ? `<label class="field"><span>Номер статьи *</span><input data-article-field="number" value="${esc(a.number || t.number)}" required></label><label class="field full"><span>Заголовок *</span><input data-article-field="title" value="${esc(a.title)}" required></label>` : ""}</div>
+      ${repealing ? `<div class="notice">Статья предлагается к отмене целиком. Её исходный текст будет включён в документ.</div>${rich(ch.source?.text_rich)}` : `<div class="compare-grid"><div><h4>Исходный текст</h4>${rich(ch.source?.text_rich || "Новая статья")}</div><label class="field"><span>Предлагаемый текст *</span><textarea data-change-text required>${esc(paragraphText(a.text_rich))}</textarea></label></div>
+      ${isNode ? "" : `<details class="article-parameters" open><summary>Параметры статьи</summary><div class="form-grid"><fieldset><legend>Категории</legend><div class="check-list">${categories.map(c=>`<label><input type="checkbox" data-category value="${esc(c.id)}" ${arr(a.categories).includes(c.id)?"checked":""}>${esc(c.name)}</label>`).join("")}</div></fieldset><label class="field"><span>Уголовно-правовой класс</span><select data-criminal-class>${selectOptions([{id:"",name:"Не применяется"},{id:"felony",name:"Felony"},{id:"misdemeanor",name:"Misdemeanor"},{id:"infraction",name:"Infraction"}],a.criminal_class || "")}</select></label>${[
+        ["prison_min_months","Лишение свободы, минимум месяцев"],["prison_max_months","Лишение свободы, максимум месяцев"],["fine_min_usd","Штраф, минимум USD"],["fine_max_usd","Штраф, максимум USD"]
+      ].map(([k,n])=>`<label class="field"><span>${n}</span><input type="number" min="0" step="1" data-sanction="${k}" value="${esc(a.sanctions?.[k] ?? "")}"></label>`).join("")}${cat.fields.filter(f=>arr(a.categories).includes(f.category_id)).map(f=>customFieldHtml(f,a.custom_values?.[f.id])).join("")}</div>
+      <h4>Юридические связи</h4>${arr(a.relations).map((r,j)=>{const other=cat.article_index.find(x=>x.id === (r.source_id === a.id ? r.target_id:r.source_id)); return `<div class="relation-row"><span>${esc(label(cat.relation_types,r.type_id))} · ${esc(other ? articleRef(other)+" · "+other.title : r.label || "Статья библиотеки")}${r.target_id === a.id ? " · входящая" : ""}</span>${button("Убрать связь","remove-relation",`data-index="${i}" data-relation="${j}" class="text-button"`)}</div>`;}).join("") || '<p class="muted small-text">Юридических связей нет.</p>'}
+      <div class="form-grid"><label class="field"><span>Тип новой связи</span><select data-relation-type>${selectOptions(cat.relation_types, "")}</select></label><label class="field"><span>Направление</span><select data-relation-direction><option value="outgoing">Из этой статьи</option><option value="incoming">В эту статью</option></select></label><label class="field full"><span>Связанная статья библиотеки</span><select data-relation-target><option value="">Выберите статью</option>${selectOptions(cat.article_index.filter(x=>x.id!==a.id).map(x=>({id:x.id,name:`${articleRef(x)} · ${x.title}`})),"")}</select></label></div>${button("Добавить связь","add-relation",`data-index="${i}" class="secondary small"`)}<p class="small-text muted">Научные сноски не изменяются законопроектом.</p></details>`}`}</section>`;
+  }
+  async function drawEditor() {
+    const e = state.editor, cat = state.editorCatalog;
+    cacheEditor();
+    let body;
+    if (e.step === 0) body = `<div class="form-grid">${field("title","Название проекта *",e.title,"text",'required maxlength="250"')}${select("document_type","Тип документа",state.config.document_types.filter(t=>t.active || t.id===e.document_type),e.document_type)}${select("category_id","Категория",state.config.categories.filter(t=>t.active || t.id===e.category_id),e.category_id)}${select("effective_rule","Вступление в силу",effectiveOptions,e.effective_rule)}${e.effective_rule === "specified_date" ? field("effective_at","Дата применения *",e.effective_at,"date","required") : ""}<p class="small-text muted full">Принятие акта подразумевает его подписание губернатором. ${e.effective_rule === "immediate" ? "В конец акта будет добавлена оговорка о неотложном законе." : ""}</p>
+      <fieldset class="full coauthor-picker" ${e.author_id && e.author_id !== state.me.id ? "disabled" : ""}><legend>Соавторы</legend><p class="small-text muted">Выберите любое количество пользователей. Соавторство действует после подтверждения приглашения.</p><label class="field"><span>Найти пользователя</span><input type="search" id="coauthorQuery" placeholder="Имя персонажа"></label><div id="coauthorChoices" class="check-list">${state.coauthorCandidates.map(u=>`<label data-coauthor-name="${esc(u.name.toLocaleLowerCase())}"><input name="coauthor_ids" type="checkbox" value="${esc(u.id)}" ${e.coauthor_ids.includes(u.id)?"checked":""}>${esc(u.name)}</label>`).join("")}</div></fieldset>
+      <div class="full"><label id="textLabel" class="field"><span>Преамбула проекта <small>необязательно</small></span></label><div class="rich-toolbar" aria-label="Форматирование преамбулы">${[["bold","Жирный"],["italic","Курсив"],["insertUnorderedList","Список"]].map(([cmd,n])=>button(n,"format",`data-command="${cmd}" class="secondary small"`)).join("")}</div><div id="richEditor" class="rich-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="textLabel">${rich(e.text_rich)}</div></div></div>`;
+    else if (e.step === 1) body = `<p>Выберите статьи библиотеки для изменения или отмены, либо добавьте новую статью.</p><div class="filters"><label><span>Поиск в правовой библиотеке</span><input id="libraryQuery" type="search" placeholder="Номер, название или кодекс"></label>${button("Найти статью","library-search")}</div><div id="libraryResults"></div><div class="actions">${button("Добавить новую статью","add-change",'class="secondary"')}</div><div id="changeList">${e.changes.map(changeHtml).join("")}</div>`;
+    else {
+      try {
+        e.preview = await api("/senate/bills/preview", {method:"POST",body:editorPayload(e)});
+        body = `<dl class="metadata"><div><dt>Вступление в силу</dt><dd>${esc(e.preview.effective_label)}</dd></div></dl><article class="document-text bill-paper"><h2>${esc(e.title || "Проект без названия")}</h2>${rich(e.preview.document_rich)}</article><div class="notice">Проверьте документ перед подачей. После подачи проект поступит в Rules Committee.</div>`;
+      } catch (err) { body = `<div class="error"><h2>Документ ещё не готов</h2><p>${esc(err.message)}</p><p>Вернитесь к реквизитам или изменениям и заполните недостающие поля.</p></div>`; }
+    }
+    content.innerHTML = breadcrumbs("Редактор проекта") + heading(e.id === "new" ? "Новый проект" : "Редактирование проекта", "Подготовка документа для рассмотрения Сенатом")
+      + (e.conflict ? '<div class="error">На сервере уже есть новая редакция. Ваши локальные правки восстановлены, но сохранить их поверх новой версии нельзя. Откройте актуальный документ для сравнения.</div>' : e.restored ? '<div class="notice">Восстановлены изменения, сохранённые на этом устройстве.</div>' : "")
+      + `<div class="editor-steps">${["Реквизиты и текст","Изменения в законах","Проверка"].map((n,i)=>button(`${i+1}. ${n}`,"editor-step",`data-step="${i}" class="${e.step===i?"active":""}" aria-current="${e.step===i?"step":"false"}"`)).join("")}</div><form id="billEditor">${body}<div class="form-error" role="alert"></div><div class="form-status" role="status" id="editorCacheStatus">Изменения сохранены на этом устройстве</div><div class="form-actions"><a class="button secondary" href="${e.id === "new" ? "#cabinet" : "#bill/"+esc(e.id)}">${e.id === "new" ? "В кабинет" : "К документу"}</a>${button("Сохранить черновик","save-draft",'class="secondary"')}${e.step<2?button("Продолжить","editor-step",`data-step="${e.step+1}"`):button("Сохранить и подать","save-submit")}</div></form>`;
+    if (state.cacheFailed) cacheEditor();
   }
   async function saveEditor(submit = false) {
     editorCapture();
-    const e = state.editor;
-    const form = document.querySelector("#billEditor");
-    if (!e.title.trim() || !stripped(e.text_rich).trim()) {
-      form.querySelector(".form-error").textContent =
-        "Заполните название и текст проекта.";
-      return;
-    }
-    const payload = {
-      title: e.title,
-      text_rich: e.text_rich,
-      document_type: e.document_type,
-      category_id: e.category_id,
-      effective_at: e.effective_at ? e.effective_at + "T00:00:00Z" : null,
-      changes: e.changes,
-    };
-    const type = state.config.document_types.find(
-      (t) => t.id === e.document_type,
-    );
-    let required = [];
-    try {
-      required = Array.isArray(type?.required_fields)
-        ? type.required_fields
-        : JSON.parse(type?.required_fields_json || "[]");
-    } catch {}
-    if (submit) {
-      const missing = required.filter((k) =>
-        Array.isArray(payload[k]) ? !payload[k].length : !payload[k],
-      );
-      if (missing.length) {
-        form.querySelector(".form-error").textContent =
-          "Заполните обязательные поля выбранного типа: " +
-          missing
-            .map(
-              (k) =>
-                ({
-                  title: "Название",
-                  text_rich: "Текст проекта",
-                  effective_at: "Дата вступления в силу",
-                  changes: "Поправки",
-                  category_id: "Категория",
-                })[k] || k,
-            )
-            .join(", ") +
-          ".";
-        return;
-      }
-    }
+    const e = state.editor, form = document.querySelector("#billEditor"), oldKey = editorCacheKey(e.id);
+    if (!e.title.trim()) { form.querySelector(".form-error").textContent = "Укажите название проекта."; return; }
+    const payload = editorPayload(e);
     if (e.id !== "new") payload.base_version = e.version;
-    const saved = await api(
-      "/senate/bills" + (e.id === "new" ? "" : "/" + encodeURIComponent(e.id)),
-      { method: e.id === "new" ? "POST" : "PUT", body: payload },
-    );
-    e.id = saved.id || e.id;
-    e.version = saved.version;
-    e.status = saved.status;
+    const saved = await api("/senate/bills" + (e.id === "new" ? "" : "/" + encodeURIComponent(e.id)), {method:e.id === "new" ? "POST":"PUT",body:payload});
+    e.id = saved.id; e.version = saved.version; e.status = saved.status; e.restored = false;
+    localStorage.removeItem(oldKey);
+    history.replaceState(null,"","#editor/"+e.id);
+    cacheEditor();
     if (submit) {
-      await api("/senate/bills/" + encodeURIComponent(e.id) + "/submit", {
-        method: "POST",
-        body: {},
-      });
-      toast("Проект подан в Rules Committee.");
-      const dest = e.id;
-      state.editor = null;
-      go("bill/" + dest);
-    } else {
-      toast("Черновик сохранён. Редакция № " + e.version);
-      history.replaceState(null, "", "#editor/" + e.id);
-      form.querySelector(".form-status").textContent =
-        "Сохранено " +
-        new Date().toLocaleTimeString("ru-RU") +
-        " · редакция № " +
-        e.version;
-      form.querySelector(".form-error").textContent = "";
-    }
+      await api("/senate/bills/"+encodeURIComponent(e.id)+"/submit",{method:"POST",body:{}});
+      localStorage.removeItem(editorCacheKey(e.id));
+      const dest=e.id;
+      state.editor=null;
+      toast("Проект подан в Rules Committee."); go("bill/"+dest);
+    } else { toast("Черновик сохранён. Редакция № "+e.version); form.querySelector(".form-error").textContent=""; form.querySelector(".form-status").textContent="Черновик сохранён на сервере · редакция № "+e.version; }
   }
   async function sessions(params) {
-    const all = await api("/senate/sessions"),
-      day = params.get("date"),
-      items = day
-        ? all.filter(
-            (s) => (s.starts_at || s.held_at || "").slice(0, 10) === day,
-          )
-        : all;
-    const ready = canManageSessions()
-      ? await api("/senate/bills?status=ready_plenary")
-      : [];
-    content.innerHTML =
-      breadcrumbs("Заседания") +
-      heading(
-        "Заседания Сената",
-        day
-          ? "Повестки на " + date(day)
-          : "Опубликованные повестки, голосования и стенограммы",
-      ) +
-      `${day ? '<p><a href="#sessions">Все даты</a></p>' : ""}${items.length ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>Повестка</th><th>Начало</th><th>Окончание</th><th>Состояние</th></tr></thead><tbody>${items.map((s) => `<tr><td><a href="#session/${esc(s.id)}">${esc(s.title)}</a></td><td>${date(s.starts_at || s.held_at, true)}</td><td>${date(s.ends_at, true)}</td><td>${status(s.status)}</td></tr>`).join("")}</tbody></table></div>` : empty("Заседания не опубликованы", "Повестки появятся после публикации уполномоченным пользователем.")}${canManageSessions() ? `<details class="panel" ${params.get("new") ? "open" : ""}><summary>Создать повестку</summary><form id="sessionForm"><div class="form-grid">${field("title", "Название заседания", "", "text", 'required maxlength="250"')}${field("quorum", "Кворум, сенаторов", state.config.settings.quorum || 1, "number", 'required min="1"')}${field("starts_at", "Начало заседания", "", "datetime-local", "required")}${field("ends_at", "Окончание голосования", "", "datetime-local", "required")}</div><h3>Готовые к пленарному рассмотрению проекты</h3>${ready.length ? `<div class="check-list">${ready.map((b) => `<label><input type="checkbox" name="bill_ids" value="${esc(b.id)}"><span>${esc(b.number || "Проект")} · ${esc(b.title)}</span></label>`).join("")}</div>` : '<p class="muted">Готовых предметов пока нет.</p>'}<div class="form-error" role="alert"></div><div class="form-actions"><button type="submit">Сохранить повестку</button></div></form></details>` : ""}`;
+    const all=await api("/senate/sessions"), publicData=await api("/senate/public"), day=params.get("date");
+    const match=s=>!day || new Date(s.starts_at).toLocaleDateString("en-CA")===day;
+    const ready=canManageSessions()?await api("/senate/bills?status=ready_plenary"):[];
+    const questions=canManageSessions()?(await api("/senate/elections")).filter(e=>e.status==="ready_plenary"):[];
+    const choices=[...ready.map(b=>({id:b.id,title:b.title,number:b.number})),...questions.map(e=>({id:e.bill_id,title:e.title,number:"Выборы про темпоре"}))];
+    content.innerHTML=breadcrumbs("Заседания")+heading("Повестки заседаний","Опубликованная повестка сразу открывает голосование")+
+      (day?'<p><a href="#sessions">Все даты</a></p>':"")+`<div class="table-wrap"><table class="data-table"><thead><tr><th>Повестка</th><th>Дата заседания</th><th>Состояние</th></tr></thead><tbody>${all.filter(match).map(s=>`<tr><td><a href="#session/${esc(s.id)}">${esc(s.title)}</a></td><td>${date(s.starts_at,true)}</td><td>${status(s.status)}</td></tr>`).join("")}${arr(publicData.committee_agendas).filter(match).map(s=>`<tr><td><a href="#committee/${esc(s.committee_id)}?agenda=${esc(s.id)}">${esc(s.title)}</a><small>${esc(s.committee_name)}</small></td><td>${date(s.starts_at,true)}</td><td>Комитет</td></tr>`).join("")}</tbody></table></div>`+
+      (canManageSessions()?`<details class="panel" ${params.get("new")?"open":""}><summary>Создать повестку</summary><form id="sessionForm"><div class="form-grid">${field("title","Название заседания","","text","required")}${field("starts_at","Публичная дата и время заседания","","datetime-local","required")}${field("ends_at","ООС дата и время закрытия голосования","","datetime-local","required")}</div><p class="small-text muted">Голосование откроется при публикации и закончится в ООС время. Публичная дата заседания на него не влияет. Кворум установлен администратором: ${esc(state.config.settings.quorum)}.</p><h3>Предметы повестки</h3>${choices.length?`<div class="check-list">${choices.map(b=>`<label><input type="checkbox" name="bill_ids" value="${esc(b.id)}"><span>${esc(b.number)} · ${esc(b.title)}</span></label>`).join("")}</div>`:'<p class="muted">Готовых предметов пока нет.</p>'}<div class="form-error" role="alert"></div><button type="submit">Сохранить повестку</button></form></details>`:"");
+  }
+  function electionBallot(e, open) {
+    const mine=e.my_choice, candidates=arr(e.candidates), name=id=>candidates.find(c=>c.id===id)?.name || choiceNames[id] || id;
+    let html=`<p class="small-text">Правило: ${esc(ruleNames[e.rule] || "Будет зафиксировано при публикации")}${e.threshold?" · требуется голосов: "+e.threshold:""}</p>`;
+    if (e.results_hidden) html+='<p class="small-text muted">Результаты скрыты до закрытия голосования.</p>';
+    else html+=`<p>${e.winner_id?"Избран про темпоре: "+esc(name(e.winner_id)):"Победитель не определён."}</p>`;
+    html+=`<div class="candidate-list">${candidates.map(c=>`<div class="candidate-row"><span>${esc(c.name)}${e.results_hidden?"":`<small>Голосов: ${arr(e.tally).find(t=>t.candidate_id===c.id)?.count || 0}</small>`}</span>${open&&e.can_vote?button(mine===c.id?"Ваш голос":"Голосовать","election-vote",`data-id="${esc(e.id)}" data-candidate="${esc(c.id)}" class="${mine===c.id?"selected":"secondary"} small" aria-pressed="${mine===c.id}"`):""}</div>`).join("")}</div>`;
+    if (open&&e.can_vote) html+=`<p>Ваш голос: <b>${esc(mine?name(mine):"Вы ещё не голосовали")}</b></p><div class="vote-actions">${["abstain","absent"].map(v=>button(choiceNames[v],"election-vote",`data-id="${esc(e.id)}" data-candidate="${v}" class="${mine===v?"selected":"secondary"}"`)).join("")}</div>`;
+    if (!e.results_hidden) html+=`<details><summary>Поимённые голоса</summary><ul>${arr(e.choices).map(c=>`<li>${esc(c.voter_id)}: ${esc(name(c.candidate_id))}</li>`).join("")}</ul></details>`;
+    if (isAdmin() && e.session_id && e.status!=="draft") html+=`<details class="panel"><summary>Исправить голос за кандидата</summary><form id="electionCorrectionForm" data-id="${esc(e.id)}">${select("voter_id","Сенатор",candidates)}${select("candidate_id","Исправленный выбор",[{id:"",name:"Снять голос"},...candidates])}${textArea("reason","Основание исправления","","required")}<div class="form-error" role="alert"></div><button type="submit">Сохранить исправление</button></form></details>`;
+    if (isAdmin() && e.status==="needs_review") html+=`<form id="electionResolutionForm" data-id="${esc(e.id)}">${select("winner_id","Исправленный итог",[{id:"",name:"Победитель не определён"},...candidates])}${textArea("reason","Основание итогового решения","","required")}<label><input type="checkbox" name="officeholders_reviewed" required> Проверены последствия для полномочий про темпоре</label><div class="form-error" role="alert"></div><button type="submit">Утвердить результат</button></form>`;
+    return html;
   }
   async function sessionDetail(id) {
-    const s = await api("/senate/sessions/" + encodeURIComponent(id)),
-      attendance = s.attendance || {},
-      open = s.status === "published" && new Date(s.ends_at) > new Date();
-    let actions = button(
-      "Скачать PDF",
-      "download",
-      `data-url="/senate/sessions/${esc(id)}/export.pdf" data-file="session-${esc(id)}.pdf" class="secondary small"`,
-    );
-    if (canManageSessions() && s.status === "draft")
-      actions += button(
-        "Опубликовать повестку",
-        "publish-session",
-        `data-id="${esc(id)}"`,
-      );
-    if (
-      canManageSessions() &&
-      s.status === "published" &&
-      new Date(s.ends_at) <= new Date()
-    )
-      actions += button(
-        "Завершить заседание",
-        "close-session",
-        `data-id="${esc(id)}"`,
-      );
-    const eligible =
-      state.me &&
-      arr(attendance.participants).some((p) => p.user_id === state.me.id);
-    const mine = arr(attendance.participants).find(
-        (p) => p.user_id === state.me?.id,
-      ),
-      absent = !!mine?.absent;
-    content.innerHTML =
-      breadcrumbs("Заседание") +
-      heading(s.title, "Пленарная повестка Сената", actions) +
-      status(s.status) +
-      `<div class="session-meta"><p>Начало: <b>${date(s.starts_at, true)}</b></p><p>Голосование закрывается: <b>${date(s.ends_at, true)}</b></p><p>Кворум: <b>${attendance.present ?? 0} из ${attendance.required ?? s.quorum}</b> сенаторов. Лейтенант-Губернатор в кворум не входит.</p>${s.published_at ? "<p>Повестка опубликована: " + date(s.published_at, true) + ". Редакции предметов зафиксированы.</p>" : ""}</div>${open ? '<div class="notice">Результаты предварительные. Свой голос можно изменить до закрытия заседания. Выбор «Отсутствовал» исключает все ваши голоса на этом заседании.</div>' : ""}${absent && open ? '<div class="notice">Вы отмечены отсутствующим на всём заседании. Голос «За», «Против» или «Воздержался» восстановит присутствие. По остальным предметам потребуется проголосовать заново.</div>' : ""}${s.status === "failed" ? '<div class="error">Кворум не достигнут. Заседание не состоялось, его предметы возвращены к пленарному рассмотрению.</div>' : ""}${
-        arr(s.items)
-          .map((item, i) => {
-            const my = arr(item.choices).find(
-                (c) => c.voter_id === state.me?.id,
-              ),
-              t = item.tally || {};
-            return `<section class="vote-item"><h2>${i + 1}. <a href="#bill/${esc(item.bill_id)}?version=${item.version}">${esc(item.title)}</a></h2><p class="small-text muted">Редакция № ${item.version} · Правило: ${esc(ruleNames[item.rule] || item.rule)}${item.threshold ? " · Требуется «За»: " + item.threshold : ""}</p>${item.result && item.result !== "pending" ? status(item.result) : ""}<div class="tally"><span>За: <b>${t.yes ?? 0}</b></span><span>Против: <b>${t.no ?? 0}</b></span><span>Воздержались: <b>${t.abstain ?? 0}</b></span><span>Отсутствовали: <b>${t.absent ?? 0}</b></span>${t.deciding_vote ? "<span>Учтён решающий голос Лейтенант-Губернатора</span>" : ""}</div>${
-              eligible && open
-                ? `<p class="small-text">Ваш голос: <b>${esc(my ? choiceNames[my.choice] : "Вы ещё не голосовали")}</b></p><div class="vote-actions">${Object.entries(
-                    choiceNames,
-                  )
-                    .map(([v, n]) =>
-                      button(
-                        n,
-                        "cast-vote",
-                        `data-session="${esc(id)}" data-bill="${esc(item.bill_id)}" data-choice="${v}" class="${my?.choice === v ? "selected" : ""}" aria-pressed="${my?.choice === v}"`,
-                      ),
-                    )
-                    .join("")}</div>`
-                : ""
-            }<details><summary>Поимённые голоса</summary>${arr(item.choices).length ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>Участник</th><th>Голос</th></tr></thead><tbody>${item.choices.map((c) => `<tr><td>${esc(c.name || c.voter_id)}${c.is_lieutenant ? " · Лейтенант-Губернатор" : ""}</td><td>${esc(choiceNames[c.choice] || c.choice)}</td></tr>`).join("")}</tbody></table></div>` : '<p class="small-text muted">Голоса ещё не поданы.</p>'}</details></section>`;
-          })
-          .join("") || empty("В повестке пока нет предметов")
-      }${
-        isAdmin()
-          ? `<details class="panel"><summary>Административное исправление голоса</summary><form id="voteCorrectionForm" data-id="${esc(id)}">${select(
-              "bill_id",
-              "Предмет повестки",
-              arr(s.items).map((i) => ({ id: i.bill_id, name: i.title })),
-            )}${field("voter_id", "Идентификатор голосующего", "", "text", "required")}${select(
-              "choice",
-              "Исправленный голос",
-              Object.entries(choiceNames).map(([id, name]) => ({ id, name })),
-            )}${textArea("reason", "Основание исправления", "", "required")}<p class="small-text muted">Исправление после закрытия заседания потребует отдельного пересмотра всех его результатов. Прежние значения сохранятся в истории.</p><div class="form-error" role="alert"></div><button type="submit">Зафиксировать исправление</button></form></details>`
-          : ""
-      }${
-        isAdmin() && s.status === "needs_review"
-          ? `<details class="panel" open><summary>Зафиксировать результаты пересмотра</summary><form id="resolutionForm" data-id="${esc(id)}">${arr(
-              s.items,
-            )
-              .map((i) =>
-                select("result:" + i.bill_id, i.title, [
-                  { id: "adopted", name: "Принят" },
-                  { id: "rejected", name: "Не принят" },
-                  { id: "no_quorum", name: "Нет кворума" },
-                ]),
-              )
-              .join(
-                "",
-              )}${textArea("reason", "Основание итогового решения", "", "required")}<label class="field"><input type="checkbox" name="committee_actions_reviewed" required> Я проверил последствия для назначений и состава комитетов.</label><div class="form-error" role="alert"></div><button type="submit">Зафиксировать итоги пересмотра</button></form></details>`
-          : ""
-      }<section class="panel"><h2>Стенограмма заседания</h2>${s.transcript ? `<div class="document-text"><p>${esc(s.transcript).replace(/\n/g, "<br>")}</p></div>` : '<p class="muted">Стенограмма ещё не загружена.</p>'}${canManageSessions() && new Date(s.ends_at) <= new Date() ? `<form id="transcriptForm" data-id="${esc(id)}">${textArea("text", "Текст стенограммы", s.transcript || "", "required")}<div class="form-error" role="alert"></div><button type="submit">Сохранить стенограмму</button></form>` : ""}</section>`;
+    const s=await api("/senate/sessions/"+encodeURIComponent(id)), open=s.status==="published", attendance=s.attendance || {};
+    let actions=button("Скачать PDF","download",`data-url="/senate/sessions/${esc(id)}/export.pdf" data-file="session-${esc(id)}.pdf" class="secondary small"`);
+    if(canManageSessions() && s.status==="draft") actions+=button("Опубликовать повестку","publish-session",`data-id="${esc(id)}"`);
+    content.innerHTML=breadcrumbs("Заседание")+heading(s.title,"Пленарная повестка Сената",actions)+status(s.status)+
+      `<div class="session-meta"><p>Дата заседания: <b>${date(s.starts_at,true)}</b></p>${s.ends_at?`<p>ООС закрытие голосования: <b>${date(s.ends_at,true)}</b></p>`:""}<p>Кворум: ${s.results_hidden?`требуется ${s.quorum} сенаторов, присутствие будет опубликовано после закрытия`:`${attendance.present} из ${s.quorum} сенаторов`}. Лейтенант-губернатор в кворум не входит.</p></div>`+
+      (open?'<div class="notice">Голосование открыто. Результаты скрыты до закрытия. Вы можете менять свой голос. Отметка «Отсутствовал» действует на все предметы заседания.</div>':"")+
+      (s.my_absent&&open?'<div class="notice">Вы отмечены отсутствующим на всём заседании. Голос по любому предмету восстановит присутствие. По остальным предметам нужно проголосовать заново.</div>':"")+
+      (s.status==="failed"?'<div class="error">Кворум не достигнут. Заседание не состоялось. Законопроекты возвращены к пленарному рассмотрению.</div>':"")+
+      arr(s.items).map((item,i)=>{
+        if(item.kind==="election") return `<section class="vote-item"><h2>${i+1}. ${esc(item.title)}</h2>${electionBallot(item.election,open)}</section>`;
+        const my=item.my_choice, t=item.tally || {};
+        return `<section class="vote-item"><h2>${i+1}. <a href="#bill/${esc(item.bill_id)}?version=${item.version}">${esc(item.title)}</a></h2><p class="small-text muted">Редакция № ${item.version} · ${esc(ruleNames[item.rule])}${item.threshold?" · требуется голосов: "+item.threshold:""}</p>${s.results_hidden?'<p class="small-text muted">Результаты скрыты до закрытия голосования.</p>':`${status(item.result)}<div class="tally">За: ${t.yes} · Против: ${t.no} · Воздержались: ${t.abstain} · Отсутствовали: ${t.absent}</div><details><summary>Поимённые голоса</summary><ul>${arr(item.choices).map(c=>`<li>${esc(c.name || c.voter_id)}: ${esc(choiceNames[c.choice])}</li>`).join("")}</ul></details>`}${s.can_vote&&open?`<p>Ваш голос: <b>${esc(choiceNames[my] || "Вы ещё не голосовали")}</b></p><div class="vote-actions">${Object.entries(choiceNames).map(([v,n])=>button(n,"cast-vote",`data-session="${esc(id)}" data-bill="${esc(item.bill_id)}" data-choice="${v}" class="${my===v?"selected":"secondary"}" aria-pressed="${my===v}"`)).join("")}</div>`:""}</section>`;
+      }).join("")+
+      (isAdmin()?`<details class="panel"><summary>Административное исправление голоса по законопроекту</summary><form id="voteCorrectionForm" data-id="${esc(id)}">${select("bill_id","Предмет",arr(s.items).filter(i=>i.kind!=="election").map(i=>({id:i.bill_id,name:i.title})))}${field("voter_id","Идентификатор голосующего","","text","required")}${select("choice","Исправленный голос",Object.entries(choiceNames).map(([id,name])=>({id,name})))}${textArea("reason","Основание исправления","","required")}<div class="form-error" role="alert"></div><button type="submit">Зафиксировать исправление</button></form></details>`:"")+
+      (isAdmin()&&s.status==="needs_review"?`<form id="resolutionForm" data-id="${esc(id)}">${arr(s.items).filter(i=>i.kind!=="election").map(i=>select("result:"+i.bill_id,i.title,[{id:"adopted",name:"Принят"},{id:"rejected",name:"Не принят"},{id:"no_quorum",name:"Нет кворума"}])).join("")}${textArea("reason","Основание итогового решения","","required")}<label><input type="checkbox" name="committee_actions_reviewed" required> Проверены последствия для состава комитетов</label><div class="form-error" role="alert"></div><button type="submit">Утвердить итоги</button></form>`:"")+
+      `<section class="panel"><h2>Стенограмма заседания</h2>${s.transcript?`<p>${esc(s.transcript).replace(/\n/g,"<br>")}</p>`:'<p class="muted">Стенограмма ещё не загружена.</p>'}${canManageSessions() && ["closed","failed"].includes(s.status)?`<form id="transcriptForm" data-id="${esc(id)}">${textArea("text","Текст стенограммы",s.transcript || "","required")}<div class="form-error" role="alert"></div><button type="submit">Сохранить стенограмму</button></form>`:""}</section>`;
   }
   async function committees() {
     const items = await api("/senate/committees");
@@ -1046,12 +913,12 @@
               Object.entries(decisionNames).map(([id, name]) => ({ id, name })),
             )}<div class="form-error" role="alert"></div><button type="submit">Подать отчёт</button></form></details>`
           : ""
-      }${chair && agendaReviews.length ? `<details class="panel"><summary>Сформировать повестку комитета</summary><form id="committeeAgendaForm" data-id="${esc(id)}">${field("title", "Название совещания", "", "text", "required")}<div class="check-list">${agendaReviews.map((r) => `<label><input type="checkbox" name="review_ids" value="${esc(r.id)}"><span>${esc(r.title || r.bill_id)} · цикл ${r.cycle}</span></label>`).join("")}</div><div class="form-error" role="alert"></div><div class="form-actions"><button type="submit">Сформировать повестку</button></div></form></details>` : ""}${
+      }${chair && agendaReviews.length ? `<details class="panel"><summary>Сформировать повестку комитета</summary><form id="committeeAgendaForm" data-id="${esc(id)}">${field("title", "Название совещания", "", "text", "required")}${field("starts_at", "Дата и время заседания", "", "datetime-local", "required")}<div class="check-list">${agendaReviews.map((r) => `<label><input type="checkbox" name="review_ids" value="${esc(r.id)}"><span>${esc(r.title || r.bill_id)} · цикл ${r.cycle}</span></label>`).join("")}</div><div class="form-error" role="alert"></div><div class="form-actions"><button type="submit">Сформировать повестку</button></div></form></details>` : ""}${
         arr(c.agendas).length
           ? `<section class="panel"><h2>Повестки комитета</h2>${c.agendas
               .map(
                 (a) =>
-                  `<details><summary>${esc(a.title)} · ${date(a.published_at || a.created_at, true)}</summary><ol>${arr(
+                  `<details id="agenda-${esc(a.id)}" ${route().params.get("agenda") === a.id ? "open" : ""}><summary>${esc(a.title)} · ${date(a.starts_at || a.published_at, true)}</summary><ol>${arr(
                     a.items,
                   )
                     .map(
@@ -1186,7 +1053,6 @@
         ],
         ["consideration_days", "Срок решения комитета, календарных дней", 10],
         ["quorum", "Кворум, присутствующих сенаторов", 1],
-        ["min_notice_hours", "Минимум часов от публикации до заседания", 0],
       ];
       body = `<form id="settingsForm"><div class="form-grid">${settingFields.map(([key, n, def]) => field(key, n, settings[key] ?? def, "number", 'min="0" required')).join("")}${select("pro_tempore_rule", "Правило выборов Pro Tempore", [{ id: "", name: "Пока не настроено" }, ...ruleOptions().filter((x) => x.id !== "predominantly_for")], settings.pro_tempore_rule || "")}${field("pro_tempore_threshold", "Порог выборов, для абсолютного большинства и 2/3", settings.pro_tempore_threshold || "", "number", 'min="1"')}</div><p class="small-text muted">Срок отчёта и срок решения комитета настраиваются независимо. Изменение параметров не меняет снимки правил уже опубликованных голосований.</p><div class="form-error" role="alert"></div><div class="form-actions"><button type="submit">Сохранить настройки</button></div></form>`;
     } else if (tab === "flags") {
@@ -1306,62 +1172,15 @@
   }
 
   async function elections() {
-    const items = await api("/senate/elections");
-    const canCreateElection = isFlag("lieutenant_governor");
-    content.innerHTML =
-      breadcrumbs("Выбор Pro Tempore") +
-      heading("Выбор Pro Tempore", "Прямое открытое голосование сенаторов") +
-      (items.length
-        ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>Вопрос</th><th>Начало</th><th>Окончание</th><th>Состояние</th></tr></thead><tbody>${items.map((e) => `<tr><td><a href="#election/${esc(e.id)}">${esc(e.title)}</a></td><td>${date(e.starts_at, true)}</td><td>${date(e.ends_at, true)}</td><td>${status(e.status)}</td></tr>`).join("")}</tbody></table></div>`
-        : empty("Выборы ещё не назначены")) +
-      (canCreateElection
-        ? `<details class="panel"><summary>Инициировать выбор Pro Tempore</summary><form id="electionForm"><div class="form-grid">${field("title", "Название вопроса", "Выбор Pro Tempore Сената", "text", "required")}${field("quorum", "Кворум", state.config.settings.quorum || 1, "number", 'min="1" required')}${field("starts_at", "Начало", "", "datetime-local", "required")}${field("ends_at", "Окончание", "", "datetime-local", "required")}</div>${field("parent_election_id", "ID предыдущей попытки, для повторного голосования")}<p class="small-text muted">Все сенаторы включаются в список кандидатов. До публикации требуется настроенное правило выборов в разделе администрирования.</p><div class="form-error" role="alert"></div><button type="submit">Создать голосование</button></form></details>`
-        : "");
+    const items=await api("/senate/elections");
+    content.innerHTML=breadcrumbs("Выборы про темпоре")+heading("Выборы про темпоре","Вопрос включается в общую повестку заседания")+
+      (items.length?`<ul class="history">${items.map(e=>`<li><a href="#election/${esc(e.id)}">${esc(e.title)}</a> ${status(e.status)}</li>`).join("")}</ul>`:empty("Вопросы о выборах ещё не внесены"))+
+      (isFlag("lieutenant_governor")?`<details class="panel"><summary>Инициировать выборы про темпоре</summary><form id="electionForm">${field("title","Название вопроса","Выборы про темпоре Сената","text","required")}${select("parent_election_id","Предыдущая попытка, если это повторное голосование",[{id:"",name:"Новый вопрос"},...items.filter(e=>["closed","failed"].includes(e.status)&&!e.winner_id).map(e=>({id:e.id,name:e.title}))])}<p class="small-text muted">После создания вопрос будет доступен при формировании общей повестки. Кандидаты фиксируются при публикации.</p><div class="form-error" role="alert"></div><button type="submit">Создать предмет повестки</button></form></details>`:"");
   }
   async function electionDetail(id) {
-    const e = await api("/senate/elections/" + encodeURIComponent(id)),
-      open = e.status === "published" && new Date(e.ends_at) > new Date(),
-      mine = arr(e.choices).find((c) => c.voter_id === state.me?.id),
-      candidates = arr(e.candidates),
-      winner = candidates.find((c) => c.id === e.winner_id);
-    content.innerHTML =
-      breadcrumbs("Выбор Pro Tempore") +
-      heading(
-        e.title,
-        "Прямое открытое голосование",
-        isFlag("lieutenant_governor") && e.status === "draft"
-          ? button(
-              "Опубликовать голосование",
-              "publish-election",
-              `data-id="${esc(id)}"`,
-            )
-          : "",
-      ) +
-      status(e.status) +
-      `<div class="session-meta"><p>Начало: ${date(e.starts_at, true)}</p><p>Закрытие голосования: ${date(e.ends_at, true)}</p><p>Кворум: ${e.quorum} сенаторов</p>${e.parent_election_id ? `<p><a href="#election/${esc(e.parent_election_id)}">Предыдущая попытка голосования</a></p>` : ""}</div>${e.status !== "needs_review" && e.winner_id ? `<div class="success">Избран Pro Tempore: ${esc(winner?.name || e.winner_id)}.</div>` : e.status === "closed" || e.status === "failed" ? '<div class="notice">Победитель не определён. Лейтенант-Губернатор может назначить повторное голосование с сохранением связи с этой попыткой.</div>' : ""}<section class="panel"><h2>Кандидаты</h2>${open ? '<p class="small-text">Можно выбрать одного кандидата и изменить голос до закрытия заседания.</p>' : ""}<div class="table-wrap"><table class="data-table"><thead><tr><th>Сенатор</th><th>Голосов</th><th>Ваш выбор</th></tr></thead><tbody>${candidates.map((c) => `<tr><td>${esc(c.name || c.id)}</td><td>${arr(e.tally).find((t) => t.candidate_id === c.id)?.count || 0}</td><td>${open && state.me && candidates.some((c) => c.id === state.me.id) ? button(mine?.candidate_id === c.id ? "Ваш голос" : "Голосовать", "election-vote", `data-id="${esc(id)}" data-candidate="${esc(c.id)}" class="${mine?.candidate_id === c.id ? "" : "secondary"} small" aria-pressed="${mine?.candidate_id === c.id}"`) : mine?.candidate_id === c.id ? "Ваш голос" : ""}</td></tr>`).join("")}</tbody></table></div></section><section class="panel"><h2>Поимённое голосование</h2>${arr(e.choices).length ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>Сенатор</th><th>Кандидат</th></tr></thead><tbody>${e.choices.map((c) => `<tr><td>${esc(c.voter_id)}</td><td>${esc(candidates.find((x) => x.id === c.candidate_id)?.name || c.candidate_id)}</td></tr>`).join("")}</tbody></table></div>` : '<p class="muted">Голоса ещё не поданы.</p>'}</section>`;
-    content.insertAdjacentHTML(
-      "beforeend",
-      button(
-        "Скачать PDF",
-        "download",
-        `data-url="/senate/sessions/${esc(e.session_id)}/export.pdf" data-file="election-${esc(id)}.pdf" class="secondary small"`,
-      ),
-    );
-    if (isAdmin() && e.status !== "draft") {
-      const people = candidates.map((c) => ({
-        id: c.id,
-        name: c.name || c.id,
-      }));
-      content.insertAdjacentHTML(
-        "beforeend",
-        `<details class="panel"><summary>Исправить голос за кандидата</summary><form id="electionCorrectionForm" data-id="${esc(id)}">${select("voter_id", "Сенатор, чей голос исправляется", people)}${select("candidate_id", "Исправленный выбор", [{ id: "", name: "Снять ошибочно записанный голос" }, ...people])}${textArea("reason", "Основание исправления", "", "required")}<p class="small-text muted">Исправление закрытых выборов требует отдельного утверждения результата. Предыдущие полномочия сохраняются до этого решения.</p><div class="form-error" role="alert"></div><button type="submit">Сохранить исправление голоса</button></form></details>`,
-      );
-      if (e.status === "needs_review")
-        content.insertAdjacentHTML(
-          "beforeend",
-          `<details class="panel" open><summary>Утвердить исправленный результат выборов</summary><form id="electionResolutionForm" data-id="${esc(id)}">${select("winner_id", "Итоговое решение", [{ id: "", name: "Победитель не определён" }, ...people])}${textArea("reason", "Основание итогового решения", "", "required")}<label class="field"><input type="checkbox" name="officeholders_reviewed" required> Я проверил последствия для полномочий Pro Tempore.</label><div class="form-error" role="alert"></div><button type="submit">Утвердить результат выборов</button></form></details>`,
-        );
-    }
+    const e=await api("/senate/elections/"+encodeURIComponent(id));
+    if(e.session_id) { go("session/"+e.session_id); return; }
+    content.innerHTML=breadcrumbs("Выборы про темпоре")+heading(e.title,"Предмет готов к включению в повестку")+`<div class="notice">Выборы будут проводиться вместе с другими предметами общей повестки. Голосование откроется после её публикации.</div>${canManageSessions()?'<a class="button" href="#sessions?new=1">Сформировать повестку</a>':""}`;
   }
   async function proposalFormHtml() {
     if (!isFlag("pro_tempore")) return "";
@@ -1395,15 +1214,6 @@
   }
   async function handleAction(el) {
     const action = el.dataset.action;
-    if (action === "publish-election") {
-      await api(
-        "/senate/elections/" + encodeURIComponent(el.dataset.id) + "/publish",
-        { method: "POST", body: {} },
-      );
-      toast("Голосование опубликовано.");
-      await render();
-      return;
-    }
     if (action === "election-vote") {
       await api(
         "/senate/elections/" + encodeURIComponent(el.dataset.id) + "/votes",
@@ -1457,7 +1267,7 @@
     if (action === "editor-step") {
       editorCapture();
       state.editor.step = Number(el.dataset.step);
-      drawEditor();
+      await drawEditor();
       return;
     }
     if (action === "use-template") {
@@ -1475,7 +1285,7 @@
       )
         return;
       state.editor.text_rich = rich(type.template);
-      drawEditor();
+      await drawEditor();
       return;
     }
     if (action === "format") {
@@ -1499,7 +1309,7 @@
       ];
       document.querySelector("#libraryResults").innerHTML = state.libraryResults
         .length
-        ? `<div class="list-results">${state.libraryResults.map((a, i) => button(`${esc(a.number || "Раздел")} · ${esc(a.title)}<small>${esc(a.code_title || a.code_id || "")} · ID ${esc(a.id)}</small>`, "pick-article", `data-index="${i}"`)).join("")}</div>`
+        ? `<div class="list-results">${state.libraryResults.map((a, i) => button(`${esc(articleRef(a))} · ${esc(a.title)}<small>${esc(a.code_name || "")}</small>`, "pick-article", `data-index="${i}"`)).join("")}</div>`
         : empty("Положения не найдены");
       return;
     }
@@ -1516,43 +1326,39 @@
         toast("Это положение уже добавлено.");
         return;
       }
-      state.editor.changes.push({
-        operation: "amend",
-        article_id: a.is_node ? undefined : a.id,
-        node_id: a.is_node ? a.id : undefined,
-        title: a.title,
-        code_id: a.code_id,
-        base_revision_id: a.revision_id,
-        target: {
-          code_id: a.code_id,
-          ...(a.is_node ? { node_id: a.id } : { article_id: a.id }),
-          number: a.number,
-        },
-        original_text: a.text_rich || "",
-        text_rich: a.text_rich || "",
-      });
-      drawEditor();
+      state.editor.changes.push({ operation: "amend", source: a,
+        target: {code_id:a.code_id, code_name:a.code_name, code_abbreviation:a.code_abbreviation,
+          ...(a.is_node ? {node_id:a.id}:{article_id:a.id}), number:a.number},
+        article: {id:a.id,number:a.number,title:a.title,text_rich:a.text_rich || "",categories:a.categories || [],
+          criminal_class:a.criminal_class,custom_values:a.custom_values || {},sanctions:a.sanctions || {},relations:a.relations || []} });
+      await drawEditor();
       return;
     }
     if (action === "add-change") {
       editorCapture();
-      state.editor.changes.push({
-        operation: "add",
-        title: "Новая статья",
-        text_rich: "<p></p>",
-        article: {
-          id: crypto.randomUUID(),
-          title: "Новая статья",
-          text_rich: "",
-        },
-      });
-      drawEditor();
+      state.editor.changes.push({operation:"add",target:{code_id:"",parent_id:null},
+        article:{id:crypto.randomUUID(),number:"",title:"",text_rich:"",categories:[],custom_values:{},sanctions:{},relations:[]}});
+      await drawEditor();
       return;
+    }
+    if (action === "add-relation" || action === "remove-relation") {
+      editorCapture();
+      const index=Number(el.dataset.index), ch=state.editor.changes[index];
+      ch.article.relations ||= [];
+      if (action === "remove-relation") ch.article.relations.splice(Number(el.dataset.relation),1);
+      else {
+        const row=el.closest("[data-change-index]"), other=row.querySelector("[data-relation-target]").value;
+        if (!other) throw Error("Выберите связанную статью библиотеки.");
+        const incoming=row.querySelector("[data-relation-direction]").value === "incoming";
+        ch.article.relations.push({type_id:row.querySelector("[data-relation-type]").value,
+          source_id:incoming?other:ch.article.id,target_id:incoming?ch.article.id:other});
+      }
+      await drawEditor(); return;
     }
     if (action === "remove-change") {
       editorCapture();
       state.editor.changes.splice(Number(el.dataset.index), 1);
-      drawEditor();
+      await drawEditor();
       return;
     }
     if (action === "submit-bill") {
@@ -1742,6 +1548,7 @@
             method: "POST",
             body: {
               title: data.title,
+              starts_at: new Date(data.starts_at).toISOString(),
               review_ids: new FormData(form).getAll("review_ids"),
             },
           },
@@ -1752,9 +1559,6 @@
           method: "POST",
           body: {
             title: data.title,
-            starts_at: new Date(data.starts_at).toISOString(),
-            ends_at: new Date(data.ends_at).toISOString(),
-            quorum: Number(data.quorum),
             parent_election_id: data.parent_election_id || null,
           },
         });
@@ -1866,7 +1670,6 @@
           title: data.title,
           starts_at: new Date(data.starts_at).toISOString(),
           ends_at: new Date(data.ends_at).toISOString(),
-          quorum: Number(data.quorum),
           bill_ids: new FormData(form).getAll("bill_ids"),
         };
         const result = await api("/senate/sessions", {
@@ -2030,24 +1833,34 @@
   });
   document.addEventListener("change", async (e) => {
     if (e.target.id === "demoRole") {
+      editorCapture();
       state.role = e.target.value;
       sessionStorage.setItem("senate-demo-role", state.role);
       state.editor = null;
       await refreshMe();
       await render();
     }
-    if (e.target.name === "document_type" && e.target.closest("#billEditor")) {
+    if (e.target.closest("#billEditor")) {
       editorCapture();
-      const type = state.config.document_types.find(
-        (t) => t.id === state.editor.document_type,
-      );
-      if (!stripped(state.editor.text_rich).trim() && type?.template)
-        state.editor.text_rich = rich(type.template);
-      drawEditor();
+      if (e.target.name === "effective_rule" || e.target.hasAttribute("data-operation") || e.target.hasAttribute("data-category") || e.target.hasAttribute("data-target-field")) {
+        const row=e.target.closest("[data-change-index]"), ch=row?state.editor.changes[Number(row.dataset.changeIndex)]:null;
+        if (ch && e.target.dataset.targetField === "code_id") { ch.target.parent_id=null; ch.target.after_article_id=null; ch.article.categories=[]; ch.article.custom_values={}; }
+        if (ch && e.target.dataset.targetField === "parent_id") ch.target.after_article_id=null;
+        await drawEditor();
+      }
     }
     if (e.target.id === "revisionSelect")
       go("bill/" + e.target.dataset.id + "?version=" + e.target.value);
   });
+  document.addEventListener("input", (event) => {
+    if (event.target.id === "coauthorQuery") {
+      const q=event.target.value.toLocaleLowerCase();
+      for (const row of document.querySelectorAll("[data-coauthor-name]")) row.hidden=!row.dataset.coauthorName.includes(q);
+    }
+    if (event.target.closest("#billEditor")) editorCapture();
+  });
+  window.addEventListener("pagehide", editorCapture);
+  window.addEventListener("beforeunload", editorCapture);
   window.addEventListener("hashchange", () => {
     if (location.hash === "#content") {
       document.querySelector("#content").focus();

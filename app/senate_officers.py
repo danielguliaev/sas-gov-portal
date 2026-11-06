@@ -36,149 +36,109 @@ def _assign_pro_tempore(c, winner):
 
 
 def _election(c, election_id):
-    return one(c, """SELECT e.*,s.title,d.starts_at,d.ends_at,d.status,d.quorum,d.published_at
-        FROM senate_elections e JOIN legislative_sessions s ON s.id=e.session_id
-        JOIN senate_session_details d ON d.session_id=e.session_id WHERE e.id=?""", (election_id,))
+    return one(c, """SELECT e.*,b.title,d.starts_at,d.ends_at,
+        CASE WHEN v.result='needs_review' THEN 'needs_review'
+        WHEN v.result!='pending' AND d.status='needs_review' THEN 'closed' ELSE COALESCE(d.status,b.status) END AS status,
+        d.quorum,d.published_at FROM senate_elections e JOIN bills b ON b.id=e.bill_id
+        LEFT JOIN senate_session_details d ON d.session_id=e.session_id
+        LEFT JOIN votes v ON v.id=e.vote_id WHERE e.id=?""", (election_id,))
 
 
 def election_detail_in_db(c, election_id, current=None):
-    from app.senate_sessions import _attendance
+    from app.senate_sessions import visible_session
     row = _election(c, election_id)
-    if row["status"] == "draft":
-        if not current or current["id"] == "guest":
-            fail(404, "NOT_FOUND", "Выборы не найдены.")
-        _require_officer(c, current, "lieutenant_governor")
-    candidates = loads(row.pop("candidates_json"), [])
-    choices = allrows(c, "SELECT voter_id,choice AS candidate_id FROM vote_choices WHERE vote_id=? ORDER BY voter_id", (row["vote_id"],))
-    count = Counter(choice["candidate_id"] for choice in choices)
-    row.update({"kind": "election", "candidates": candidates, "choices": choices,
-                "tally": [{"candidate_id": candidate["id"], "count": count[candidate["id"]]} for candidate in candidates],
-                "attendance": {"present": len(choices), "required": row["quorum"]}, "items": []})
-    return row
+    if row['status'] == 'draft':
+        from app.senate_sessions import can_manage_sessions
+        if not current or not can_manage_sessions(c, current):
+            fail(404, 'NOT_FOUND', 'Повестка ещё не опубликована.')
+    candidates = loads(row.pop('candidates_json'), [])
+    choices = allrows(c, 'SELECT voter_id,choice AS candidate_id FROM vote_choices WHERE vote_id=? ORDER BY voter_id', (row['vote_id'],))
+    hidden = row['status'] not in {'closed', 'failed'}
+    count = Counter(choice['candidate_id'] for choice in choices)
+    mine = next((r['candidate_id'] for r in choices if current and r['voter_id'] == current['id']), None)
+    row.update(kind='election', candidates=candidates, my_choice=mine, results_hidden=hidden,
+        choices=[] if hidden else choices,
+        tally=None if hidden else [{'candidate_id': candidate['id'], 'count': count[candidate['id']]} for candidate in candidates])
+    row['can_vote'] = bool(current and maybe(c, 'SELECT 1 FROM senate_session_electorate WHERE session_id=? AND user_id=? AND is_lieutenant=0', (row['session_id'], current['id'])))
+    if hidden:
+        row['winner_id'] = None
+    return visible_session(c, row, current)
 
 
-def finalize_election(c, session_id, current):
-    from app.senate_sessions import _date
-    row = one(c, "SELECT id FROM senate_elections WHERE session_id=?", (session_id,))
-    election = _election(c, row["id"])
-    if election["status"] != "published":
-        return election
-    if _date(election["ends_at"], "ends_at") > datetime.now(timezone.utc):
-        fail(409, "SESSION_NOT_ENDED", "Голосование ещё не завершено.")
-    candidates = {candidate["id"] for candidate in loads(election["candidates_json"], [])}
-    counts = Counter(row["choice"] for row in allrows(c, "SELECT choice FROM vote_choices WHERE vote_id=?", (election["vote_id"],)) if row["choice"] in candidates)
-    total = sum(counts.values())
+def publish_election_item(c, election_id, senators, current):
+    election = _election(c, election_id)
+    if not senators:
+        fail(409, 'NO_CANDIDATES', 'В системе нет действующих сенаторов.')
+    candidates = [{'id': user['id'], 'name': user.get('name') or user['id']} for user in senators]
+    rule = setting(c, 'pro_tempore_rule', 'simple_majority') or 'simple_majority'
+    threshold = setting(c, 'pro_tempore_threshold', None)
+    if rule not in {'simple_majority', 'absolute_majority', 'two_thirds'}:
+        fail(422, 'INVALID_ELECTION_RULE', 'Неверное правило выборов про темпоре.')
+    if rule != 'simple_majority' and (type(threshold) is not int or threshold < 1):
+        fail(422, 'ELECTION_THRESHOLD_REQUIRED', 'Укажите число голосов за кандидата в настройках.')
+    c.execute('UPDATE senate_elections SET candidates_json=?,rule=?,threshold=? WHERE id=?', (dumps(candidates), rule, threshold, election_id))
+    c.execute('UPDATE senate_session_items SET rule=?,threshold=? WHERE vote_id=?', (rule, threshold, election['vote_id']))
+    senate_audit(c, current, 'election.publish', 'senate_election', election_id, {}, {'candidates': candidates, 'rule': rule, 'threshold': threshold})
+
+
+def finalize_election_item(c, election_id, current, quorum_met):
+    election = _election(c, election_id)
+    if one(c, 'SELECT result FROM votes WHERE id=?', (election['vote_id'],))['result'] != 'pending':
+        return
+    candidates = {candidate['id'] for candidate in loads(election['candidates_json'], [])}
+    choices = allrows(c, 'SELECT vc.choice FROM vote_choices vc JOIN senate_session_electorate e ON e.session_id=? AND e.user_id=vc.voter_id WHERE vc.vote_id=? AND e.is_lieutenant=0', (election['session_id'], election['vote_id']))
+    counts = Counter(r['choice'] for r in choices if r['choice'] in candidates)
+    present = sum(r['choice'] != 'absent' for r in choices)
     winner = None
-    if total >= election["quorum"] and counts:
-        top_count = max(counts.values())
-        leaders = [candidate for candidate, count in counts.items() if count == top_count]
-        threshold = total // 2 + 1 if election["rule"] == "simple_majority" else election["threshold"]
-        if len(leaders) == 1 and top_count >= threshold:
+    if quorum_met and counts:
+        leaders = [candidate for candidate, count in counts.items() if count == max(counts.values())]
+        threshold = present // 2 + 1 if election['rule'] == 'simple_majority' else election['threshold']
+        if len(leaders) == 1 and counts[leaders[0]] >= threshold:
             winner = leaders[0]
-    status = "closed" if total >= election["quorum"] else "failed"
-    result = "adopted" if winner else ("no_quorum" if status == "failed" else "no_winner")
-    c.execute("UPDATE senate_elections SET winner_id=? WHERE id=?", (winner, election["id"]))
-    c.execute("UPDATE senate_session_details SET status=? WHERE session_id=?", (status, session_id))
-    c.execute("UPDATE votes SET result=? WHERE id=?", (result, election["vote_id"]))
-    c.execute("UPDATE bills SET status=? WHERE id=?", ("adopted" if winner else "rejected", election["bill_id"]))
+    result = 'adopted' if winner else ('no_winner' if quorum_met else 'no_quorum')
+    c.execute('UPDATE senate_elections SET winner_id=? WHERE id=?', (winner, election_id))
+    c.execute('UPDATE votes SET result=? WHERE id=?', (result, election['vote_id']))
+    c.execute('UPDATE bills SET status=? WHERE id=?', ('adopted' if winner else 'rejected', election['bill_id']))
     previous = [{'user_id': user['id']} for user in known_users(c)
                 if has_flag(c, {'id': user['id'], 'roles': set(user.get('roles', []))}, 'pro_tempore')]
     if winner:
         _assign_pro_tempore(c, winner)
-    senate_audit(c, current, "election.close", "senate_election", election["id"],
-          {"status": "published", "previous_officers": previous},
-          {"status": status, "winner_id": winner, "result": result, "tally": dict(counts)})
-    return _election(c, election["id"])
+    senate_audit(c, current, 'election.close', 'senate_election', election_id,
+        {'status': 'published', 'previous_officers': previous}, {'winner_id': winner, 'result': result, 'tally': dict(counts)})
 
 
-@router.get("/elections")
+@router.get('/elections')
 def elections(current=Depends(optional_senate_actor)):
     from app.senate_sessions import finalize_due_sessions
     with transaction() as c:
         finalize_due_sessions(c)
-        can_view_drafts = current and (has_flag(c, current, "lieutenant_governor") or has_flag(c, current, "superadmin"))
-        rows = allrows(c, "SELECT id FROM senate_elections ORDER BY created_at DESC")
-        result = []
-        for row in rows:
-            election = _election(c, row["id"])
-            if election["status"] != "draft" or can_view_drafts:
-                result.append(election_detail_in_db(c, row["id"], current))
-        return result
+        from app.senate_sessions import can_manage_sessions
+        return [election_detail_in_db(c, row['id'], current) for row in allrows(c, 'SELECT id FROM senate_elections ORDER BY created_at DESC')
+                if _election(c, row['id'])['status'] != 'draft' or (current and can_manage_sessions(c, current))]
 
 
-@router.post("/elections")
+@router.post('/elections')
 def create_election(body: dict, current=Depends(senate_actor)):
-    from app.senate_sessions import _date
-    title = plain(body.get("title", "Выборы Pro Tempore"), 250)
+    title = plain(body.get('title', 'Выборы про темпоре'), 250)
     if not title:
-        fail(422, "TITLE_REQUIRED", "Укажите название выборов.")
-    starts = _date(body.get("starts_at"), "starts_at")
-    ends = _date(body.get("ends_at"), "ends_at")
-    if ends <= starts or ends <= datetime.now(timezone.utc):
-        fail(422, "INVALID_SESSION_DATES", "Окончание должно быть позже начала и текущего времени.")
+        fail(422, 'TITLE_REQUIRED', 'Укажите название вопроса.')
     with transaction() as c:
-        # This procedural power belongs to the Lieutenant-Governor, not all senators.
-        if not has_flag(c, current, "lieutenant_governor"):
-            fail(403, "LIEUTENANT_REQUIRED", "Выборы инициирует Лейтенант-Губернатор.")
-        quorum = setting(c, "quorum", 1)
-        if "quorum" in body and body["quorum"] != quorum:
-            fail(403, "QUORUM_ADMIN_ONLY", "Используется кворум, установленный суперадминистратором.")
-        parent = body.get("parent_election_id")
-        if parent is not None:
-            if not isinstance(parent, str):
-                fail(422, "INVALID_PARENT", "Некорректный идентификатор предыдущих выборов.")
+        if not has_flag(c, current, 'lieutenant_governor'):
+            fail(403, 'LIEUTENANT_REQUIRED', 'Предмет о выборах инициирует только лейтенант-губернатор.')
+        parent = body.get('parent_election_id') or None
+        if parent:
             previous = _election(c, parent)
-            if previous["status"] not in {"closed", "failed"} or previous["winner_id"]:
-                fail(409, "ELECTION_REPEAT_INVALID", "Повтор назначается только для завершённых выборов без победителя.")
-        election_id, session_id, bill_id, vote_id = uid(), uid(), uid(), uid()
-        c.execute("INSERT INTO bills VALUES(?,?,?,?,?,?)", (bill_id, title, current["id"], "election_draft", "", ts()))
-        c.execute("INSERT INTO bill_revisions VALUES(?,?,?,?,?,?)", (uid(), bill_id, 1, "Выборы Pro Tempore", current["id"], ts()))
-        c.execute("INSERT INTO legislative_sessions VALUES(?,?,?)", (session_id, title, starts.isoformat()))
-        c.execute("INSERT INTO senate_session_details(session_id,starts_at,ends_at,quorum,creator_id) VALUES(?,?,?,?,?)",
-                  (session_id, starts.isoformat(), ends.isoformat(), quorum, current["id"]))
-        c.execute("INSERT INTO votes VALUES(?,?,?,?,?)", (vote_id, bill_id, session_id, "pending", ts()))
-        c.execute("INSERT INTO senate_elections(id,session_id,bill_id,vote_id,parent_election_id,creator_id,created_at) VALUES(?,?,?,?,?,?,?)",
-                  (election_id, session_id, bill_id, vote_id, parent, current["id"], ts()))
-        senate_audit(c, current, "election.create", "senate_election", election_id, {},
-              {"session_id": session_id, "parent_election_id": parent})
+            if previous['status'] not in {'closed', 'failed'} or previous['winner_id']:
+                fail(409, 'ELECTION_REPEAT_INVALID', 'Повторное голосование связывается с завершённой попыткой без победителя.')
+        election_id, bill_id = uid(), uid()
+        c.execute('INSERT INTO bills VALUES(?,?,?,?,?,?)', (bill_id, title, current['id'], 'ready_plenary', '', ts()))
+        c.execute('INSERT INTO bill_revisions VALUES(?,?,?,?,?,?)', (uid(), bill_id, 1, 'Выборы про темпоре', current['id'], ts()))
+        c.execute('INSERT INTO senate_elections(id,bill_id,parent_election_id,creator_id,created_at) VALUES(?,?,?,?,?)', (election_id, bill_id, parent, current['id'], ts()))
+        senate_audit(c, current, 'election.create', 'senate_election', election_id, {}, {'parent_election_id': parent, 'bill_id': bill_id})
         return election_detail_in_db(c, election_id, current)
 
 
-@router.post("/elections/{election_id}/publish")
-def publish_election(election_id: str, current=Depends(senate_actor)):
-    from app.senate_sessions import _date
-    with transaction() as c:
-        if not has_flag(c, current, "lieutenant_governor"):
-            fail(403, "LIEUTENANT_REQUIRED", "Публикация выборов доступна Лейтенант-Губернатору.")
-        election = _election(c, election_id)
-        if election["status"] != "draft":
-            fail(409, "AGENDA_FROZEN", "Выборы уже опубликованы.")
-        rule = setting(c, "pro_tempore_rule", None)
-        threshold = setting(c, "pro_tempore_threshold", None)
-        if rule not in {"simple_majority", "absolute_majority", "two_thirds"}:
-            fail(409, "ELECTION_RULE_REQUIRED", "Сначала настройте согласованное правило выборов Pro Tempore.")
-        if rule != "simple_majority" and (type(threshold) is not int or threshold < 1):
-            fail(422, "ELECTION_THRESHOLD_REQUIRED", "Укажите необходимое число голосов за кандидата.")
-        now = datetime.now(timezone.utc)
-        notice = setting(c, "min_notice_hours", 0)
-        if _date(election["starts_at"], "starts_at") < now + timedelta(hours=float(notice)) or _date(election["ends_at"], "ends_at") <= now:
-            fail(422, "MIN_NOTICE", "Не соблюдён срок публикации выборов.")
-        senators = _eligible(c)
-        if not senators:
-            fail(409, "NO_CANDIDATES", "В системе нет действующих сенаторов.")
-        candidates = [{"id": user["id"], "name": user.get("name") or user["id"]} for user in senators]
-        for senator in senators:
-            c.execute("INSERT INTO senate_session_electorate VALUES(?,?,0)", (election["session_id"], senator["id"]))
-        c.execute("UPDATE senate_elections SET candidates_json=?,rule=?,threshold=? WHERE id=?", (dumps(candidates), rule, threshold, election_id))
-        c.execute("UPDATE senate_session_details SET status='published',published_at=?,settings_json=? WHERE session_id=?",
-                  (ts(), dumps({"rule": rule, "threshold": threshold}), election["session_id"]))
-        c.execute("UPDATE bills SET status='election_published' WHERE id=?", (election["bill_id"],))
-        senate_audit(c, current, "election.publish", "senate_election", election_id, {},
-              {"candidates": candidates, "rule": rule, "threshold": threshold})
-        return election_detail_in_db(c, election_id, current)
-
-
-@router.get("/elections/{election_id}")
+@router.get('/elections/{election_id}')
 def election_detail(election_id: str, current=Depends(optional_senate_actor)):
     from app.senate_sessions import finalize_due_sessions
     with transaction() as c:
@@ -186,35 +146,23 @@ def election_detail(election_id: str, current=Depends(optional_senate_actor)):
         return election_detail_in_db(c, election_id, current)
 
 
-@router.post("/elections/{election_id}/votes")
+@router.post('/elections/{election_id}/votes')
 def election_vote(election_id: str, body: dict, current=Depends(senate_actor)):
-    from app.senate_sessions import _open_session
-    candidate = body.get("candidate_id")
-    if not isinstance(candidate, str):
-        fail(422, "CANDIDATE_REQUIRED", "Выберите кандидата.")
+    from app.senate_sessions import _open_session, _cast_choice
+    candidate = body.get('candidate_id')
     with transaction() as c:
         election = _election(c, election_id)
-        _open_session(c, election["session_id"])
-        if not maybe(c, "SELECT user_id FROM senate_session_electorate WHERE session_id=? AND user_id=?", (election["session_id"], current["id"])):
-            fail(403, "NOT_IN_ELECTORATE", "Голосуют только сенаторы из опубликованного состава.")
-        if candidate not in {row["id"] for row in loads(election["candidates_json"], [])}:
-            fail(422, "INVALID_CANDIDATE", "Кандидат не входит в опубликованный список.")
-        before = maybe(c, "SELECT choice FROM vote_choices WHERE vote_id=? AND voter_id=?", (election["vote_id"], current["id"]))
-        c.execute("""INSERT INTO vote_choices VALUES(?,?,?) ON CONFLICT(vote_id,voter_id)
-            DO UPDATE SET choice=excluded.choice""", (election["vote_id"], current["id"], candidate))
-        senate_audit(c, current, "election.vote", "senate_election", election_id, before, {"candidate_id": candidate})
-        return {"candidate_id": candidate, "saved_at": ts()}
-
-
-@router.post("/elections/{election_id}/close")
-def close_election(election_id: str, current=Depends(senate_actor)):
-    with transaction() as c:
-        _require_officer(c, current, "lieutenant_governor")
-        election = _election(c, election_id)
-        if election["status"] == "draft":
-            fail(409, "NOT_PUBLISHED", "Выборы ещё не опубликованы.")
-        finalize_election(c, election["session_id"], current)
-        return election_detail_in_db(c, election_id, current)
+        if not election['session_id']:
+            fail(409, 'NOT_PUBLISHED', 'Вопрос ещё не включён в опубликованную повестку.')
+        _open_session(c, election['session_id'])
+        voter = maybe(c, 'SELECT * FROM senate_session_electorate WHERE session_id=? AND user_id=? AND is_lieutenant=0', (election['session_id'], current['id']))
+        if not voter:
+            fail(403, 'NOT_IN_ELECTORATE', 'Голосуют сенаторы из опубликованного состава.')
+        if not isinstance(candidate, str) or candidate not in {r['id'] for r in loads(election['candidates_json'], [])} | {'abstain', 'absent'}:
+            fail(422, 'INVALID_CANDIDATE', 'Выберите кандидата, воздержание или отсутствие.')
+        item = one(c, 'SELECT * FROM senate_session_items WHERE vote_id=?', (election['vote_id'],))
+        _cast_choice(c, election['session_id'], item, candidate, current)
+        return {'candidate_id': candidate, 'saved_at': ts()}
 
 
 def _guard_later_election(c, election):
@@ -234,7 +182,7 @@ def correct_election_vote(election_id: str, body: dict, current=Depends(senate_a
         if not has_flag(c, current, 'superadmin'):
             fail(403, 'FORBIDDEN', 'Исправление доступно суперадминистратору.')
         election = _election(c, election_id)
-        if election['status'] == 'draft':
+        if election['status'] in {'draft', 'ready_plenary'}:
             fail(409, 'NOT_PUBLISHED', 'Выборы ещё не опубликованы.')
         _guard_later_election(c, election)
         one(c, 'SELECT user_id FROM senate_session_electorate WHERE session_id=? AND user_id=?', (election['session_id'], voter))
@@ -248,7 +196,7 @@ def correct_election_vote(election_id: str, body: dict, current=Depends(senate_a
                 DO UPDATE SET choice=excluded.choice''', (election['vote_id'], voter, candidate))
         ended = _date(election['ends_at'], 'ends_at') <= datetime.now(timezone.utc)
         if ended or election['status'] != 'published':
-            c.execute("UPDATE senate_session_details SET status='needs_review' WHERE session_id=?", (election['session_id'],))
+            # Candidate corrections affect this item; the rest of the agenda retains its results.
             c.execute("UPDATE votes SET result='needs_review' WHERE id=?", (election['vote_id'],))
             c.execute("UPDATE bills SET status='election_review' WHERE id=?", (election['bill_id'],))
         senate_audit(c, current, 'election.admin_correction', 'senate_election', election_id, before,
@@ -283,7 +231,7 @@ def resolve_election(election_id: str, body: dict, current=Depends(senate_actor)
         status = 'closed' if winner or total >= election['quorum'] else 'failed'
         result = 'adopted' if winner else ('no_quorum' if status == 'failed' else 'no_winner')
         c.execute('UPDATE senate_elections SET winner_id=? WHERE id=?', (winner, election_id))
-        c.execute('UPDATE senate_session_details SET status=? WHERE session_id=?', (status, election['session_id']))
+        # The shared session was already closed; only this election result changes.
         c.execute('UPDATE votes SET result=? WHERE id=?', (result, election['vote_id']))
         c.execute('UPDATE bills SET status=? WHERE id=?', ('adopted' if winner else 'rejected', election['bill_id']))
         senate_audit(c, current, 'election.admin_resolution', 'senate_election', election_id, before,
