@@ -10,7 +10,7 @@ def test_lawyer_without_favorites_receives_official_change_once(client,headers):
     lawyer=headers["lawyer"]
     reader=headers["user"]
     article=client.post(api("/articles"),headers=admin,json={
-        "code_id":"demo-penal","number":"873","title":"Официальная редакция",
+        "code_id":"PEN","number":"873","title":"Официальная редакция",
         "text_rich":"<p>Старый текст.</p>","categories":["definition"]})
     assert article.status_code==200,article.text
     a=article.json()

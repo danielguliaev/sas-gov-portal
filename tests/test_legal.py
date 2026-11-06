@@ -21,12 +21,12 @@ def test_auth_and_permission_filter(client, headers):
 
 def test_sanctions_classification_and_unique_number(client, headers, admin):
     bad = client.post(api("/articles"), headers=headers["superadmin"],
-        json={"code_id":"demo-penal","number":"10","title":"Тест обвинения",
+        json={"code_id":"PEN","number":"10","title":"Тест обвинения",
               "text_rich":"<p>Текст</p>","categories":["accusation"]})
     assert bad.status_code == 422
     assert bad.json()["error"]["code"] == "CRIMINAL_CLASS_REQUIRED"
     bad_fine = client.post(api("/articles"), headers=headers["superadmin"],
-        json={"code_id":"demo-penal","number":"11","title":"Санкция",
+        json={"code_id":"PEN","number":"11","title":"Санкция",
               "categories":["accusation"],"criminal_class":"felony",
               "sanctions":{"fine_min_usd":100,"fine_max_usd":50}})
     assert bad_fine.status_code == 422
@@ -37,7 +37,7 @@ def test_sanctions_classification_and_unique_number(client, headers, admin):
     assert a["sanctions"]["prison_min_months"] == 0
     assert a["sanctions"]["fine_min_usd"] is None
     duplicate = client.post(api("/articles"), headers=headers["superadmin"],
-        json={"code_id":"demo-penal","number":" 1-0 ","title":"Дублирование","categories":["definition"]})
+        json={"code_id":"PEN","number":" 1-0 ","title":"Дублирование","categories":["definition"]})
     assert duplicate.status_code == 409
     assert client.get(api("/articles/" + a["id"]), headers=headers["user"]).json()["id"] == a["id"]
 

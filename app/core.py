@@ -519,7 +519,7 @@ def init_database():
         for version, filename in ((8, "008_senate_portal.sql"), (9, "009_senate_sessions.sql"),
                                   (10, "010_senate_officers.sql"), (11, "011_senate_committee_agendas.sql"),
                                   (12, "012_senate_flag_definitions.sql"), (13, "013_test_accounts.sql"),
-                                  (14, "014_senate_feedback.sql")):
+                                  (14, "014_senate_feedback.sql"), (15, "015_documents_and_agendas.sql")):
             if c.execute("SELECT 1 FROM schema_migrations WHERE version=?", (version,)).fetchone():
                 continue
             c.execute("BEGIN IMMEDIATE")
@@ -536,6 +536,16 @@ def init_database():
                 if "\n".join(pending).strip():
                     raise ValueError("Незавершённая миграция " + filename)
                 c.execute("INSERT INTO schema_migrations(version) VALUES(?)", (version,))
+                c.commit()
+            except Exception:
+                c.rollback()
+                raise
+        if not c.execute('SELECT 1 FROM schema_migrations WHERE version=16').fetchone():
+            from app.code_identity import migrate_code_ids
+            c.execute('BEGIN IMMEDIATE')
+            try:
+                migrate_code_ids(c)
+                c.execute('INSERT INTO schema_migrations(version) VALUES(16)')
                 c.commit()
             except Exception:
                 c.rollback()
@@ -578,20 +588,20 @@ def seed_demo(include_sample=True):
                    VALUES('accusation_punishment','Обвинение — мера наказания','accusation','punishment_measure',1)""")
         if include_sample:
             c.execute("""INSERT OR IGNORE INTO codes(id,jurisdiction_id,name,abbreviation)
-                       VALUES('demo-penal','state','Penal Code','PC')""")
+                       VALUES('PEN','state','Penal Code','PEN')""")
             c.execute("""INSERT OR IGNORE INTO hierarchy_types
                        (id,code_id,name,level_order,allowed_parents)
-                       VALUES('demo-chapter','demo-penal','Глава',1,'["ROOT"]')""")
+                       VALUES('demo-chapter','PEN','Глава',1,'["ROOT"]')""")
             c.execute("""INSERT OR IGNORE INTO structure_nodes
                        (id,code_id,type_id,parent_key,number,number_key,sort_key,title)
-                       VALUES('demo-intro','demo-penal','demo-chapter','ROOT','I','I','1I','Общие положения (демо)')""")
+                       VALUES('demo-intro','PEN','demo-chapter','ROOT','I','I','1I','Общие положения (демо)')""")
             if not maybe(c, "SELECT id FROM articles WHERE id='demo-article-1'"):
                 now = ts()
                 c.execute("""INSERT INTO articles
                            (id,code_id,parent_id,number,number_key,sort_key,title,text_rich,
                            categories_json,created_at,updated_at)
                            VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
-                           ("demo-article-1", "demo-penal", "demo-intro", "1", "1",
+                           ("demo-article-1", "PEN", "demo-intro", "1", "1",
                             number_sort_key("1"), "Демонстрационная норма",
                             "<p>Пример структуры правового текста. <strong>Не является действующим законом.</strong></p>",
                             dumps(["definition"]), now, now))

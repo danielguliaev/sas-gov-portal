@@ -67,7 +67,7 @@ def test_legislation_portal_desktop_and_mobile(tmp_path):
             # An empty root has no article heading or placeholder for readers.
             expect(page.locator(".section-tile")).to_have_count(1)
             expect(page.locator(".section-heading")).not_to_be_visible()
-            expect(page.locator(".eyebrow").first).to_have_text("PC")
+            expect(page.locator(".eyebrow").first).to_have_text("PEN")
             assert page.get_by_text("Структура документа").count()==0
             assert page.get_by_text("Содержание кодекса",exact=True).count()==0
             page.locator(".section-tile").first.click()
@@ -120,7 +120,7 @@ def test_legislation_portal_desktop_and_mobile(tmp_path):
             response = page.request.post(
                 base_url + "/api/v1/articles",
                 headers={"X-Demo-User": "superadmin"},
-                data={"code_id": "demo-penal", "parent_id": None,
+                data={"code_id": "PEN", "parent_id": None,
                       "number": "42", "title": "Корневая статья",
                       "text_rich": "<p>Статья непосредственно в кодексе.</p>",
                       "categories": ["definition"]},
@@ -128,7 +128,7 @@ def test_legislation_portal_desktop_and_mobile(tmp_path):
             assert response.ok, response.text()
             root_article = response.json()
             page.set_viewport_size({"width":1440, "height":900})
-            page.goto(base_url + "/codes/demo-penal")
+            page.goto(base_url + "/codes/PEN")
             expect(page.locator(".tree-code-name")).to_have_text("Penal Code")
             expect(page.locator(".code-tree-root > .root-article-index a")).to_have_count(1)
             root_link = page.locator(".code-tree-root > .root-article-index a").first
@@ -158,7 +158,7 @@ def test_legislation_portal_desktop_and_mobile(tmp_path):
             page.get_by_label("Часть", exact=True).check()
             page.locator("#structureForm button[type='submit']").click()
             expect(page.locator("#structureDialog")).not_to_be_visible()
-            page.goto(base_url + "/codes/demo-penal")
+            page.goto(base_url + "/codes/PEN")
             page.get_by_role("button", name="Добавить часть / раздел").click()
             page.locator("#structureTypeSelect").select_option(label="Подраздел")
             page.locator("#structureParentSelect").select_option(label="II · Дополнительные положения")
@@ -170,7 +170,7 @@ def test_legislation_portal_desktop_and_mobile(tmp_path):
             page.screenshot(path=str(captures / "law-portal-code-tree.png"), full_page=True)
 
             # Create a root article with the built-in editor, then move it to a subchapter.
-            page.goto(base_url + "/codes/demo-penal")
+            page.goto(base_url + "/codes/PEN")
             page.get_by_role("button", name="Создать статью").click()
             expect(page.locator("#editorDialog")).to_be_visible()
             page.locator("#articleParentSelect").select_option("")
@@ -192,7 +192,7 @@ def test_legislation_portal_desktop_and_mobile(tmp_path):
             expect(page.locator(".article-card")).to_contain_text("Свободная статья")
             expect(page.locator("#articleIndex .article-index-link")).to_contain_text(
                 "85 · Свободная статья")
-            page.goto(base_url + "/codes/demo-penal")
+            page.goto(base_url + "/codes/PEN")
             expect(page.locator(".root-article-index .article-index-link")).to_have_count(1)
             assert not page.locator(".root-article-index").get_by_text(
                 "85 · Свободная статья").count()

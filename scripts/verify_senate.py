@@ -51,6 +51,7 @@ def run():
                     bill_id = bill['id']
                     request('PUT', f'/bills/{bill_id}', 'legislator', {'base_version': 1, 'text_rich': text + '<p>Редакция уточнена.</p>'})
                     assert client.get(API + f'/bills/{bill_id}').status_code == 404
+                    request('POST', '/admin/flags', 'superadmin', {'user_id':'demo-lawyer','flag':'senator','active':True})
                     request('POST', f'/bills/{bill_id}/coauthors', 'legislator', {'user_id': 'demo-lawyer'})
                     request('POST', f'/bills/{bill_id}/coauthors/respond', 'lawyer', {'accept': True})
                     request('POST', f'/bills/{bill_id}/submit', 'legislator')

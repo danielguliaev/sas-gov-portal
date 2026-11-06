@@ -14,7 +14,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from app.core import APP_ENV, error_handler, init_database, seed_demo, purge_old_audit_events, actor, require, read_db, transaction, uid, dumps, ts
-from app import legal, editor, portals, hierarchy, integration, auth, acts, outline, senate, senate_sessions, senate_officers, test_accounts
+from app import legal, editor, portals, hierarchy, integration, auth, acts, outline, senate, senate_sessions, senate_officers, test_accounts, senate_agendas
 
 
 async def _audit_retention_worker():
@@ -192,6 +192,7 @@ app.include_router(acts.router, prefix="/api/v1")
 app.include_router(senate.router, prefix="/api/v1")
 app.include_router(senate_sessions.router, prefix="/api/v1")
 app.include_router(senate_officers.router, prefix="/api/v1")
+app.include_router(senate_agendas.router, prefix="/api/v1")
 app.include_router(test_accounts.router, prefix="/api/v1")
 
 WEB = Path(__file__).resolve().parent.parent / "web"

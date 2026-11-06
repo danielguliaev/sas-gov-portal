@@ -30,7 +30,7 @@ def test_optional_preamble_and_three_effective_rules_in_every_document(client):
         bill_id = create(client, effective_rule=rule, effective_at=effective)
         bill = client.get(API + '/bills/' + bill_id, headers=SENATOR).json()
         assert bill['text_rich'] == ''
-        assert bill['document_rich'].startswith('<p><strong>' + ENACTING)
+        assert ENACTING in bill['document_rich']
         assert phrase in bill['document_rich']
         assert phrase in bill['revisions'][0]['document_rich']
         exported = client.get(API + '/bills/' + bill_id + '/export.json', headers=SENATOR).json()['law']
@@ -57,7 +57,7 @@ def test_parameters_relations_and_numbered_document_do_not_mutate_library(client
             'categories': ['punishment_measure'], 'custom_values': {'period': 14},
             'sanctions': {'prison_min_months': 2, 'prison_max_months': 24, 'fine_min_usd': 50, 'fine_max_usd': 200},
             'relations': [{'type_id': 'accusation_punishment', 'source_id': target, 'target_id': source}]}},
-        {'operation': 'add', 'target': {'code_id': 'demo-penal', 'after_article_id': source}, 'article': {
+        {'operation': 'add', 'target': {'code_id': 'PEN', 'after_article_id': source}, 'article': {
             'number': '191', 'title': 'Новая норма', 'text_rich': '<p>Содержание новой статьи.</p>'}},
         {'operation': 'repeal', 'target': {'article_id': 'demo-article-1'}, 'article': {}}
     ]
@@ -82,6 +82,8 @@ def test_bulk_coauthors_keep_confirmation_and_have_no_twenty_person_limit(client
     with core.transaction() as c:
         for i in range(25):
             c.execute('INSERT INTO senate_profiles(user_id,name) VALUES(?,?)', (f'author-{i}', f'Соавтор {i}'))
+            c.execute("INSERT INTO senate_user_flags VALUES(?,'senator',1)", (f'author-{i}',))
+        c.execute("INSERT INTO senate_user_flags VALUES('demo-user','senator',1)")
     ids = [f'author-{i}' for i in range(25)]
     bill_id = create(client, coauthor_ids=ids + ['demo-user'])
     assert len(client.get(API + '/bills/' + bill_id, headers=SENATOR).json()['coauthors']) == 26

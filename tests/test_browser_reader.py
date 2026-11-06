@@ -46,7 +46,7 @@ def test_reader_retry_and_deep_article_link(tmp_path):
             for i in range(14):
                 result=page.request.post(base+root,headers={"X-Demo-User":"superadmin"},
                     data={
-                        "code_id":"demo-penal","parent_id":"demo-intro",
+                        "code_id":"PEN","parent_id":"demo-intro",
                         "number":str(500+i),"title":"Норма для пагинации "+str(i),
                         "categories":["definition"],
                         "text_rich":"<p>"+("Развёрнутое положение закона. "*25)+"</p>"
@@ -60,13 +60,13 @@ def test_reader_retry_and_deep_article_link(tmp_path):
                     route.abort("failed")
                 else:
                     route.continue_()
-            page.route("**/api/v1/codes/demo-penal/outline?*",temporary_failure)
+            page.route("**/api/v1/codes/PEN/outline?*",temporary_failure)
             code_requests=[]
             page.on("request",lambda req: code_requests.append(req.url)
-                    if "/api/v1/codes/demo-penal/tree" in req.url else None)
+                    if "/api/v1/codes/PEN/tree" in req.url else None)
             page.goto(base+"/")
             page.locator("#roleSelect").select_option("user")
-            page.goto(base+"/codes/demo-penal/nodes/demo-intro")
+            page.goto(base+"/codes/PEN/nodes/demo-intro")
             expect(page.locator(".article-card")).to_have_count(12,timeout=15000)
             assert code_requests and all("include_nodes=false" in url
                                          for url in code_requests),code_requests
@@ -108,7 +108,7 @@ def test_reader_retry_and_deep_article_link(tmp_path):
 
             # REQ-075/076: a return to a large chapter must load enough cards
             # to restore its own history position without changing the URL.
-            page.goto(base+"/codes/demo-penal/nodes/demo-intro")
+            page.goto(base+"/codes/PEN/nodes/demo-intro")
             # Session restoration may prefetch all 15 cards; both 12 and 15 are valid.
             expect(page.locator(".article-card").nth(11)).to_be_visible(timeout=15000)
             page.evaluate("window.scrollTo(0, 1800)")
@@ -129,7 +129,7 @@ def test_reader_retry_and_deep_article_link(tmp_path):
             expect(page).to_have_url(base+"/articles/"+created[3])
             expect(page.locator("#card-"+created[3])).to_be_visible()
             page.go_back(wait_until="domcontentloaded")
-            expect(page).to_have_url(base+"/codes/demo-penal/nodes/demo-intro")
+            expect(page).to_have_url(base+"/codes/PEN/nodes/demo-intro")
             for _ in range(200):
                 if abs(page.evaluate("window.scrollY")-saved)<70:
                     break

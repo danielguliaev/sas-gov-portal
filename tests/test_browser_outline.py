@@ -43,38 +43,38 @@ def test_mixed_outline_and_admin_reorder(tmp_path):
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.goto(base + "/")
             page.locator("#roleSelect").select_option("user")
-            page.goto(base + "/codes/demo-penal", wait_until="domcontentloaded")
+            page.goto(base + "/codes/PEN", wait_until="domcontentloaded")
             expect(page.locator(".section-tile")).to_have_count(1)
             expect(page.locator(".section-heading")).not_to_be_visible()
             expect(page.locator(".reader-empty")).to_have_count(0)
-            expect(page.locator(".eyebrow").first).to_have_text("PC")
+            expect(page.locator(".eyebrow").first).to_have_text("PEN")
             assert page.get_by_text("Структура документа").count() == 0
 
             page.locator("#roleSelect").select_option("lawyer")
-            page.goto(base + "/codes/demo-penal", wait_until="domcontentloaded")
+            page.goto(base + "/codes/PEN", wait_until="domcontentloaded")
             expect(page.locator(".section-heading")).not_to_be_visible()
 
             # The existing code root contains a part. Insert an introduction
             # before the part and a concluding article after it.
             first = page.request.post(base + "/api/v1/articles",
                 headers={"X-Demo-User": "superadmin"}, data={
-                    "code_id": "demo-penal", "number": "850",
+                    "code_id": "PEN", "number": "850",
                     "title": "Вводная статья", "categories": ["definition"],
                     "insert_at": 0, "text_rich": "<p>Введение.</p>"})
             assert first.ok, first.text()
             last = page.request.post(base + "/api/v1/articles",
                 headers={"X-Demo-User": "superadmin"}, data={
-                    "code_id": "demo-penal", "number": "851",
+                    "code_id": "PEN", "number": "851",
                     "title": "Заключительная статья", "categories": ["definition"],
                     "text_rich": "<p>Заключение.</p>"})
             assert last.ok, last.text()
             first_id, last_id = first.json()["id"], last.json()["id"]
-            root = page.request.get(base + "/api/v1/codes/demo-penal/outline",
+            root = page.request.get(base + "/api/v1/codes/PEN/outline",
                                     headers={"X-Demo-User": "lawyer"}).json()
             assert [x["kind"] for x in root["items"]] == [
                 "article", "node", "article"]
 
-            page.goto(base + "/codes/demo-penal", wait_until="domcontentloaded")
+            page.goto(base + "/codes/PEN", wait_until="domcontentloaded")
             expect(page.locator(".reader-articles > .article-card")).to_have_count(2)
             expect(page.locator(".reader-articles > .outline-section-grid")).to_have_count(1)
             rendered = page.locator(".reader-articles > *").evaluate_all(
@@ -96,11 +96,11 @@ def test_mixed_outline_and_admin_reorder(tmp_path):
             card.locator("textarea[name='description']").fill(
                 "Положения об ответственности, преступлениях и наказаниях.")
             card.get_by_role("button", name="Сохранить сведения").click()
-            page.goto(base + "/codes/demo-penal", wait_until="domcontentloaded")
+            page.goto(base + "/codes/PEN", wait_until="domcontentloaded")
             expect(page.locator(".lede")).to_have_text(
                 "Положения об ответственности, преступлениях и наказаниях.")
 
-            page.goto(base + "/admin/hierarchy?code=demo-penal&view=order",
+            page.goto(base + "/admin/hierarchy?code=PEN&view=order",
                       wait_until="domcontentloaded")
             expect(page.locator("#hierarchySortGroup")).to_be_visible()
             expect(page.locator(".wb-sort-row")).to_have_count(3)
@@ -109,7 +109,7 @@ def test_mixed_outline_and_admin_reorder(tmp_path):
             page.get_by_role("button", name="Сохранить общий порядок").click()
             expect(page.locator(".toast.visible")).to_contain_text(
                 "Общий порядок", timeout=10000)
-            page.goto(base + "/codes/demo-penal", wait_until="domcontentloaded")
+            page.goto(base + "/codes/PEN", wait_until="domcontentloaded")
             expect(page.locator(".reader-articles > .article-card")).to_have_count(2)
             rendered = page.locator(".reader-articles > *").evaluate_all(
                 """elements => elements.map(el =>

@@ -89,6 +89,6 @@ def test_v4_migrates_prior_local_database_without_losing_codes(tmp_path):
         version=c.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0]
         row=c.execute("""SELECT id,name,abbreviation,publication_issuer,
                                 publication_reference,published_at FROM codes
-                         WHERE id='original-code'""").fetchone()
-    assert version==14
-    assert row==("original-code","Historic Code","HC",None,None,None)
+                         WHERE id='HC'""").fetchone()
+    assert version==16
+    assert row==("HC","Historic Code","HC",None,None,None)

@@ -9,7 +9,7 @@ def test_annotation_offsets_decode_entities_and_stay_on_old_revision(client, hea
     admin=headers["superadmin"]
     lawyer=headers["lawyer"]
     article=client.post(root+"/articles",headers=admin,json={
-        "code_id":"demo-penal","number":"988","title":"Изменение правовых определений",
+        "code_id":"PEN","number":"988","title":"Изменение правовых определений",
         "text_rich":"<p>Норма A &amp; B</p><p> и <strong>условия</strong> применения.</p>",
         "categories":["definition"],"parent_id":None})
     assert article.status_code==200,article.text

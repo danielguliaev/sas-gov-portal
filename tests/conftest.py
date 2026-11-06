@@ -23,7 +23,7 @@ def headers():
 def admin(client, headers):
     def create(number, title="Тестовая норма", cats=None, crime=None, sanctions=None,
                parent="demo-intro", text="<p>Не является действующим законом.</p>"):
-        body = {"code_id": "demo-penal", "parent_id": parent,
+        body = {"code_id": "PEN", "parent_id": parent,
                 "number": number, "title": title, "text_rich": text,
                 "categories": cats or ["definition"], "criminal_class": crime}
         if sanctions is not None:

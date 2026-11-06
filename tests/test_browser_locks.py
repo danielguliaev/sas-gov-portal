@@ -36,7 +36,7 @@ def test_two_browser_tabs_respect_editor_locks_and_dirty_exit(tmp_path):
             first=context.new_page()
             created=first.request.post(base+"/api/v1/articles",
                 headers={"X-Demo-User":"superadmin"},data={
-                    "code_id":"demo-penal","number":"990","title":"Статья о блокировках",
+                    "code_id":"PEN","number":"990","title":"Статья о блокировках",
                     "categories":["definition"],"text_rich":"<p>Первая редакция.</p>"})
             assert created.status==200,created.text()
             article_id=created.json()["id"]

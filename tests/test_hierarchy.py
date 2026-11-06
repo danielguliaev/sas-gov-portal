@@ -7,23 +7,23 @@ def route(path):
 
 def test_hierarchy_retire_lifts_children_without_changing_article_revision(client, headers, admin):
     auth = headers["superadmin"]
-    parent_type = client.post(route("/codes/demo-penal/hierarchy-types"), json={
+    parent_type = client.post(route("/codes/PEN/hierarchy-types"), json={
         "name": "Раздел для исключения", "level_order": 2, "allowed_parents": ["ROOT"]
     }, headers=auth)
     assert parent_type.status_code == 200, parent_type.text
     parent_type_id = parent_type.json()["id"]
-    child_type = client.post(route("/codes/demo-penal/hierarchy-types"), json={
+    child_type = client.post(route("/codes/PEN/hierarchy-types"), json={
         "name": "Подраздел для переноса", "level_order": 3,
         "allowed_parents": ["ROOT", parent_type_id]
     }, headers=auth)
     assert child_type.status_code == 200, child_type.text
     child_type_id = child_type.json()["id"]
-    parent = client.post(route("/codes/demo-penal/nodes"), json={
+    parent = client.post(route("/codes/PEN/nodes"), json={
         "type_id": parent_type_id, "number": "A", "title": "Исходный раздел"
     }, headers=auth)
     assert parent.status_code == 200, parent.text
     parent_id = parent.json()["id"]
-    child = client.post(route("/codes/demo-penal/nodes"), json={
+    child = client.post(route("/codes/PEN/nodes"), json={
         "type_id": child_type_id, "parent_id": parent_id,
         "number": "B", "title": "Подраздел"
     }, headers=auth)
@@ -48,14 +48,14 @@ def test_hierarchy_retire_lifts_children_without_changing_article_revision(clien
     assert changed.status_code == 200
     assert changed.json()["revision_id"] == article["revision_id"]
     assert changed.json()["parent_id"] is None
-    tree = client.get(route("/codes/demo-penal/tree"), headers=auth).json()
+    tree = client.get(route("/codes/PEN/tree"), headers=auth).json()
     assert child_id in {x["id"] for x in tree["nodes"] if x["parent_id"] is None}
     assert parent_id not in {x["id"] for x in tree["nodes"]}
 
 
 def test_roman_order_and_manual_renumbering(client, headers):
     h = headers["superadmin"]
-    typ = client.post(route("/codes/demo-penal/hierarchy-types"), json={
+    typ = client.post(route("/codes/PEN/hierarchy-types"), json={
         "name": "Римский тип", "level_order": 1,
         "allowed_parents": ["ROOT"], "number_format": "roman"
     }, headers=h)
@@ -63,27 +63,27 @@ def test_roman_order_and_manual_renumbering(client, headers):
     t = typ.json()["id"]
     ids = []
     for number in ("IV", "IX", "V"):
-        node = client.post(route("/codes/demo-penal/nodes"), json={
+        node = client.post(route("/codes/PEN/nodes"), json={
             "type_id": t, "number": number, "title": "Римский раздел " + number
         }, headers=h)
         assert node.status_code == 200,node.text
         ids.append(node.json()["id"])
     order = client.post(route("/nodes/order"), json={
-        "code_id":"demo-penal","type_id":t,"parent_id":None,
+        "code_id":"PEN","type_id":t,"parent_id":None,
         "mode":"manual","ordered_ids":ids
     },headers=h)
     assert order.status_code == 200,order.text
     new_number = client.patch(route("/nodes/" + ids[0]), json={"number": "X"},
                               headers=h)
     assert new_number.status_code == 200,new_number.text
-    tree = client.get(route("/codes/demo-penal/tree"), headers=h).json()
+    tree = client.get(route("/codes/PEN/tree"), headers=h).json()
     nodes = [x for x in tree["nodes"] if x["type_id"] == t]
     assert [x["id"] for x in nodes] == ids
     reset = client.post(route("/nodes/order"), json={
-        "code_id":"demo-penal","type_id":t,"parent_id":None,"mode":"auto"
+        "code_id":"PEN","type_id":t,"parent_id":None,"mode":"auto"
     },headers=h)
     assert reset.status_code == 200,reset.text
-    tree = client.get(route("/codes/demo-penal/tree"), headers=h).json()
+    tree = client.get(route("/codes/PEN/tree"), headers=h).json()
     nodes = [x for x in tree["nodes"] if x["type_id"] == t]
     assert [x["number"] for x in nodes] == ["V", "IX", "X"]
 
@@ -117,7 +117,7 @@ def test_unused_custom_field_can_change_type_and_used_cannot(client, headers):
                       headers=h,json={"name":"Значение"})
     assert opt.status_code == 200,opt.text
     created = client.post(route("/articles"), headers=h, json={
-        "code_id":"demo-penal","number":"941","title":"Пользовательские поля",
+        "code_id":"PEN","number":"941","title":"Пользовательские поля",
         "categories":["definition"],"text_rich":"<p>Демонстрация</p>",
         "custom_values":{field_id:opt.json()["id"]}
     })
@@ -178,14 +178,14 @@ def test_exclusive_relation_rule_change_is_transactional(client, headers, admin)
 def test_unnumbered_root_sections_coexist_with_numbered_parts(client, headers, admin):
     """Introductory pages and Part I are siblings, without synthetic numbering."""
     auth = headers["superadmin"]
-    introductory = client.post(route("/codes/demo-penal/hierarchy-types"), json={
+    introductory = client.post(route("/codes/PEN/hierarchy-types"), json={
         "name": "Вводный раздел", "level_order": 0, "number_format": "none",
         "allowed_parents": ["ROOT"],
     }, headers=auth)
     assert introductory.status_code == 200, introductory.text
     intro_type = introductory.json()["id"]
 
-    part_type = client.post(route("/codes/demo-penal/hierarchy-types"), json={
+    part_type = client.post(route("/codes/PEN/hierarchy-types"), json={
         "name": "Часть", "level_order": 1, "number_format": "roman",
         "allowed_parents": ["ROOT"],
     }, headers=auth)
@@ -193,19 +193,19 @@ def test_unnumbered_root_sections_coexist_with_numbered_parts(client, headers, a
 
     intro_ids = []
     for title in ("Название кодекса", "Предварительные положения"):
-        created = client.post(route("/codes/demo-penal/nodes"), json={
+        created = client.post(route("/codes/PEN/nodes"), json={
             "type_id": intro_type, "parent_id": None, "title": title, "number": "",
         }, headers=auth)
         assert created.status_code == 200, created.text
         intro_ids.append(created.json()["id"])
 
-    part = client.post(route("/codes/demo-penal/nodes"), json={
+    part = client.post(route("/codes/PEN/nodes"), json={
         "type_id": part_type.json()["id"], "parent_id": None,
         "title": "О преступлениях и наказаниях", "number": "I",
     }, headers=auth)
     assert part.status_code == 200, part.text
 
-    index = client.get(route("/codes/demo-penal/structure-index"),
+    index = client.get(route("/codes/PEN/structure-index"),
                        headers=headers["user"]).json()["items"]
     relevant = [n for n in index if n["id"] in set(intro_ids + [part.json()["id"]])]
     assert [n["title"] for n in relevant] == [
@@ -222,7 +222,7 @@ def test_unnumbered_root_sections_coexist_with_numbered_parts(client, headers, a
     article = admin("850", parent=intro_ids[1])
     assert article["parent_id"] == intro_ids[1]
 
-    numbered = client.post(route("/codes/demo-penal/nodes"), json={
+    numbered = client.post(route("/codes/PEN/nodes"), json={
         "type_id": intro_type, "title": "Недопустимый номер", "number": "0",
     }, headers=auth)
     assert numbered.status_code == 422

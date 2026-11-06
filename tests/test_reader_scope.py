@@ -9,10 +9,10 @@ def api(path):
 def test_code_root_articles_have_a_separate_lightweight_index(client, headers, admin):
     first = admin("11", title="Основная статья", parent=None)
     second = admin("12", title="Следующая статья", parent=None)
-    unauth = client.get(api("/codes/demo-penal/root/article-index"))
+    unauth = client.get(api("/codes/PEN/root/article-index"))
     assert unauth.status_code == 401
 
-    r = client.get(api("/codes/demo-penal/root/article-index?limit=1"),
+    r = client.get(api("/codes/PEN/root/article-index?limit=1"),
                    headers=headers["user"])
     assert r.status_code == 200, r.text
     data = r.json()
@@ -21,7 +21,7 @@ def test_code_root_articles_have_a_separate_lightweight_index(client, headers, a
     assert set(data["items"][0]) == {"id", "number", "title"}
     assert "text_rich" not in data["items"][0]
 
-    follow = client.get(api("/codes/demo-penal/root/article-index"),
+    follow = client.get(api("/codes/PEN/root/article-index"),
                         params={"limit": 1, "cursor": data["next_cursor"]},
                         headers=headers["user"])
     assert follow.status_code == 200
@@ -60,7 +60,7 @@ def test_library_notifications_are_isolated_from_other_sites(client, headers):
 
 
 def test_public_html_has_new_brand_and_three_roles(client):
-    response = client.get("/codes/demo-penal")
+    response = client.get("/codes/PEN")
     assert response.status_code == 200
     html = response.text
     assert "Правовая библиотека штата Сан Андреас" in html

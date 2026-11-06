@@ -114,7 +114,12 @@ def create_code(body: dict, current=Depends(actor)):
         names = allrows(c, "SELECT name FROM codes WHERE jurisdiction_id=?", (jurisdiction_id,))
         if any(row["name"].casefold() == name.casefold() for row in names):
             fail(409, "DUPLICATE_CODE", "В этой юрисдикции кодекс с таким названием уже существует.")
-        code_id = uid()
+        from app.code_identity import code_identifier
+        code_id = code_identifier(abbreviation) if abbreviation else uid()
+        if not code_id:
+            fail(422, "INVALID_CODE_ABBREVIATION", "Сокращение должно содержать буквы, цифры, дефис или подчёркивание.")
+        if maybe(c, "SELECT id FROM codes WHERE id=?", (code_id,)):
+            fail(409, "DUPLICATE_CODE_ID", "Кодекс с таким сокращением уже существует.")
         c.execute("""INSERT INTO codes(id,jurisdiction_id,name,abbreviation,is_demo,
                      publication_issuer,publication_reference,published_at,description)
                      VALUES(?,?,?,?,0,?,?,?,?)""",

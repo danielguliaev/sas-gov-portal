@@ -2,6 +2,7 @@
 from html import escape, unescape
 from datetime import datetime, timezone
 from io import BytesIO
+from html.parser import HTMLParser
 from pathlib import Path
 import re
 from threading import Lock
@@ -9,12 +10,12 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi.responses import Response
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_LEFT
+from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, LongTable, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, LongTable, TableStyle, HRFlowable, PageBreak
 from app.core import fail, loads
 
 _FONT_LOCK = Lock()
@@ -99,10 +100,55 @@ def text_content(value):
     return unescape(re.sub(r"<[^>]*>", "", text)).strip()
 
 
-def pdf_response(title: str, sections: list[tuple[str, str]], filename: str, history_rows=None):
+class DocumentParser(HTMLParser):
+    def __init__(self, body, width):
+        super().__init__()
+        self.body, self.width, self.story = body, width, []
+        self.tag, self.parts, self.classes = None, [], ''
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == 'hr':
+            self.story.extend([HRFlowable(width='100%', thickness=.6, color=colors.black), Spacer(1, 12)])
+        elif tag in {'p','h2','h3','h4','li'} or (tag == 'div' and attrs.get('class') == 'document-number'):
+            self.tag, self.parts, self.classes = tag, [], attrs.get('class', '')
+        elif self.tag and tag in {'strong','b','em','i','u'}:
+            self.parts.append('<' + {'strong':'b', 'em':'i'}.get(tag,tag) + '>')
+        elif self.tag and tag == 'br':
+            self.parts.append('<br/>')
+
+    def handle_data(self, data):
+        if self.tag:
+            self.parts.append(escape(data))
+
+    def handle_endtag(self, tag):
+        if self.tag and tag in {'strong','b','em','i','u'}:
+            self.parts.append('</' + {'strong':'b', 'em':'i'}.get(tag,tag) + '>')
+        elif self.tag == tag:
+            text = ''.join(self.parts)
+            if tag == 'div':
+                value = text_content(text)
+                left, _, right = value.partition('NO.')
+                right_style = ParagraphStyle('NumberRight', parent=self.body, alignment=TA_RIGHT)
+                table = LongTable([[Paragraph(escape(left), self.body), Paragraph('NO. '+escape(right), right_style)]], colWidths=[self.width*.75,self.width*.25])
+                table.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'TOP'),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]))
+                self.story.append(table)
+            elif not text_content(text):
+                self.story.append(Spacer(1, self.body.leading))
+            else:
+                center = self.classes in {'document-date','document-authors','document-legislature'}
+                style = ParagraphStyle('DocumentBlock', parent=self.body, alignment=TA_CENTER if center else TA_LEFT,
+                    fontSize=12 if tag in {'h2','h3'} else (9 if self.classes == 'document-attributes' else 10), leading=17,
+                    spaceBefore=18 if tag in {'h2','h3'} or self.classes == 'enacting-clause' else 0)
+                self.story.append(Paragraph(text, style))
+            self.tag = None
+
+
+def pdf_response(title: str, sections: list[tuple[str, str]], filename: str, history_rows=None, document_html=None):
     with _FONT_LOCK:
         if "SenateText" not in pdfmetrics.getRegisteredFontNames():
             pdfmetrics.registerFont(TTFont("SenateText", str(FONT_PATH)))
+            pdfmetrics.registerFontFamily('SenateText', normal='SenateText', bold='SenateText', italic='SenateText', boldItalic='SenateText')
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=46, leftMargin=46,
                             topMargin=52, bottomMargin=50, title=title,
@@ -114,8 +160,21 @@ def pdf_response(title: str, sections: list[tuple[str, str]], filename: str, his
                              textColor=colors.HexColor("#a30c1f"), spaceBefore=16,
                              spaceAfter=8, keepWithNext=True)
     title_style = ParagraphStyle("SenateTitle", parent=heading, fontSize=19, leading=26)
-    story = [Paragraph(escape(title), title_style), Spacer(1, 8)]
+    if document_html:
+        parser = DocumentParser(body, A4[0]-92)
+        parser.feed(document_html)
+        story = parser.story
+    else:
+        story = [Paragraph(escape(title), title_style), Spacer(1, 8)]
     for label, content in sections:
+        if '<div class="bill-document-header">' in content:
+            story.append(PageBreak())
+            if label:
+                story.append(Paragraph(escape(str(label)), heading))
+            parser = DocumentParser(body, A4[0]-92)
+            parser.feed(content)
+            story.extend(parser.story)
+            continue
         if label:
             story.append(Paragraph(escape(str(label)), heading))
         paragraphs = text_content(content).splitlines() or ["Нет данных"]

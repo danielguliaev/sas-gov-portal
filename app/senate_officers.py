@@ -128,7 +128,7 @@ def create_election(body: dict, current=Depends(senate_actor)):
         parent = body.get('parent_election_id') or None
         if parent:
             previous = _election(c, parent)
-            if previous['status'] not in {'closed', 'failed'} or previous['winner_id']:
+            if previous['status'] not in {'closed', 'failed', 'cancelled'} or previous['winner_id']:
                 fail(409, 'ELECTION_REPEAT_INVALID', 'Повторное голосование связывается с завершённой попыткой без победителя.')
         election_id, bill_id = uid(), uid()
         c.execute('INSERT INTO bills VALUES(?,?,?,?,?,?)', (bill_id, title, current['id'], 'ready_plenary', '', ts()))

@@ -66,6 +66,7 @@ def test_revisions_are_immutable_and_optimistic(client):
 
 
 def test_coauthors_receive_access_only_after_confirmation(client):
+    flag(client, 'demo-user', 'senator')
     bill_id = draft(client)
     assert client.post(BASE + f'/bills/{bill_id}/coauthors', json={'user_id': 'demo-user'}, headers=SENATOR).status_code == 200
     assert client.get(BASE + f'/bills/{bill_id}', headers=READER).status_code == 404
@@ -73,6 +74,7 @@ def test_coauthors_receive_access_only_after_confirmation(client):
     assert client.post(BASE + f'/bills/{bill_id}/coauthors/respond', json={'accept': True}, headers=READER).status_code == 200
     assert client.get(BASE + f'/bills/{bill_id}', headers=READER).status_code == 200
     assert client.put(BASE + f'/bills/{bill_id}', json={'base_version': 1, 'title': 'Правка соавтора'}, headers=READER).status_code == 200
+    flag(client, 'demo-user', 'senator', False)
     assert client.post(BASE + f'/bills/{bill_id}/submit', headers=READER).status_code == 403
 
 
@@ -210,6 +212,7 @@ def test_search_filters_author_confirmed_coauthor_and_dates(client):
     from datetime import datetime, timedelta, timezone
     bill_id = draft(client)
     client.put(BASE + '/profile', headers=SENATOR, json={'name': 'Мария Сенатор'})
+    flag(client, 'demo-user', 'senator')
     client.post(BASE + f'/bills/{bill_id}/coauthors', headers=SENATOR, json={'user_id': 'demo-user'})
     assert client.get(BASE + '/bills?coauthor=demo-user', headers=SENATOR).json() == []
     client.post(BASE + f'/bills/{bill_id}/coauthors/respond', headers=READER, json={'accept': True})
@@ -237,7 +240,7 @@ def test_bill_pdf_has_readable_history_and_user_timezone(client):
     text = '\n'.join(page.extract_text() for page in PdfReader(BytesIO(response.content)).pages)
     assert 'На рассмотрении в комитете' in text
     assert '01.07.2026 14:00 CEST' in text
-    assert 'Журнал рассмотрения' in text and 'Подача проекта' in text
+    assert 'Журнал рассмотрения' in text and 'Проект подан' in text
     assert 'committee_review' not in text
     assert client.get(BASE + f'/bills/{bill_id}/export.pdf?time_zone=Invalid/Zone').status_code == 422
 

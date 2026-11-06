@@ -41,7 +41,7 @@ def test_admin_task_workbenches_and_russian_offense_classes(tmp_path):
             page.goto(base+"/")
             page.locator("#roleSelect").select_option("superadmin")
             expect(page.locator(".portal-metric strong").first).to_have_text("1",timeout=15000)
-            page.goto(base+"/admin/hierarchy?code=demo-penal",wait_until="domcontentloaded")
+            page.goto(base+"/admin/hierarchy?code=PEN",wait_until="domcontentloaded")
             expect(page.locator(".admin-hierarchy-workbench")).to_be_visible()
             expect(page.locator(".wb-steps .wb-step")).to_have_count(3)
             expect(page.locator(".wb-picker-item")).not_to_have_count(0)
@@ -90,7 +90,7 @@ def test_admin_task_workbenches_and_russian_offense_classes(tmp_path):
             # scientific note; the ordinary reader does not get this tool.
             annotated=page.request.post(base+"/api/v1/articles",
                 headers={"X-Demo-User":"superadmin"},data={
-                    "code_id":"demo-penal","number":"601",
+                    "code_id":"PEN","number":"601",
                     "title":"Аннотация к норме","categories":["definition"],
                     "text_rich":"<p>ABC &amp; XYZ положения.</p>"})
             assert annotated.status==200,annotated.text()
@@ -126,7 +126,7 @@ def test_admin_task_workbenches_and_russian_offense_classes(tmp_path):
             assert page.locator(".search-page-filters select[name=criminal_class] option").all_text_contents()[-3:] == [
                 "Тяжкое преступление","Проступок","Нарушение"]
             page.locator("#roleSelect").select_option("superadmin")
-            page.goto(base+"/codes/demo-penal")
+            page.goto(base+"/codes/PEN")
             page.get_by_role("button",name="Создать статью").click()
             labels=page.locator("#editorDialog select[name=criminal_class] option").all_text_contents()
             assert labels[-3:]==["Тяжкое преступление","Проступок","Нарушение"]

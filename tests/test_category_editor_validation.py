@@ -64,8 +64,8 @@ def test_category_name_is_unique_only_within_its_scope(client, headers):
     global_cat = client.post(api("/categories"),headers=admin,json=body)
     assert global_cat.status_code == 200
     scoped = client.post(api("/categories"),headers=admin,json={
-        **body,"code_id":"demo-penal"})
+        **body,"code_id":"PEN"})
     assert scoped.status_code == 200
     duplicate_scoped = client.post(api("/categories"),headers=admin,json={
-        "name":"ТЕМАТИЧЕСКИЕ РАЗЪЯСНЕНИЯ","code_id":"demo-penal"})
+        "name":"ТЕМАТИЧЕСКИЕ РАЗЪЯСНЕНИЯ","code_id":"PEN"})
     assert duplicate_scoped.status_code == 409

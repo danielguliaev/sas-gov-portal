@@ -6,7 +6,7 @@ def path(value):
 
 
 def test_portal_page_and_assets_are_served(client):
-    for route in ("/", "/laws", "/codes/demo-penal", "/articles/demo-article-1", "/search"):
+    for route in ("/", "/laws", "/codes/PEN", "/articles/demo-article-1", "/search"):
         response = client.get(route)
         assert response.status_code == 200, (route, response.text)
         assert 'lang="ru"' in response.text
@@ -39,7 +39,7 @@ def test_codes_counts_and_overview_show_only_active_materials(client, headers, a
     assert metrics["article_count"] >= 1
     assert metrics["section_count"] >= 1
     code = next(item for item in client.get(path("/codes"),headers=auth).json()
-                if item["id"] == "demo-penal")
+                if item["id"] == "PEN")
     assert code["article_count"] >= 1
     assert code["section_count"] >= 1
 
@@ -48,7 +48,7 @@ def test_codes_counts_and_overview_show_only_active_materials(client, headers, a
     assert after["totals"]["article_count"] == metrics["article_count"] + 1
     assert any(item["id"] == added["id"] for item in after["recent_revisions"])
     code_after = next(item for item in client.get(path("/codes"), headers=auth).json()
-                      if item["id"] == "demo-penal")
+                      if item["id"] == "PEN")
     assert code_after["article_count"] == code["article_count"] + 1
 
     preview = client.post(path("/archive/preview"),

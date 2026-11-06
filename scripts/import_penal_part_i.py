@@ -47,7 +47,7 @@ def import_part_i(database=None, *, apply=False):
         if matches:
             code_id = matches[0]["id"]
         else:
-            code_id = "pen-code"
+            code_id = "PEN"
             if core.maybe(c, "SELECT id FROM codes WHERE id=?", (code_id,)):
                 raise ValueError("Reserved code ID is already in use")
             c.execute("INSERT INTO codes (id,jurisdiction_id,name,abbreviation,is_demo) VALUES (?,?,?,?,1)",

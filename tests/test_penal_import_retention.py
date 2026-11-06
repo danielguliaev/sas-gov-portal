@@ -30,7 +30,7 @@ def test_part_i_import_is_complete_and_idempotent(client, headers):
     first = import_part_i(apply=True)
     assert first["articles_created"] == 104
     assert first["sections_created"] == 19  # Including Part I itself.
-    assert first["code_id"] == "demo-penal"
+    assert first["code_id"] == "PEN"
     second = import_part_i(apply=True)
     assert second["articles_created"] == 0
     assert second["sections_created"] == 0

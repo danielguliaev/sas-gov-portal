@@ -16,7 +16,7 @@ def test_revision_freezes_category_field_and_option_names(client, headers, admin
         json={"name":"Первоначальное значение"})
     oid=option.json()["id"]
     response=client.post(url("/articles"),headers=auth,json={
-        "code_id":"demo-penal","parent_id":None,"number":"801",
+        "code_id":"PEN","parent_id":None,"number":"801",
         "title":"Статья с атрибутом","categories":["definition"],
         "custom_values":{fid:oid},"text_rich":"<p>Текст</p>"})
     assert response.status_code==200,response.text
@@ -58,7 +58,7 @@ def test_typed_field_search_and_history(client,headers,admin):
     o2=client.post(url("/category-fields/"+multiple+"/options"),headers=auth,
                    json={"name":"Вариант Б"}).json()["id"]
     new=client.post(url("/articles"),headers=auth,json={
-        "code_id":"demo-penal","number":"805","title":"Особая редакция",
+        "code_id":"PEN","number":"805","title":"Особая редакция",
         "categories":["definition"],"custom_values":{multiple:[o1,o2]},
         "text_rich":"<p>Редкий исторический оборот</p>"})
     assert new.status_code==200,new.text
@@ -80,10 +80,10 @@ def test_typed_field_search_and_history(client,headers,admin):
 
 def test_restore_can_choose_another_valid_node_location(client,headers,admin):
     auth=headers["superadmin"]
-    type_id=client.post(url("/codes/demo-penal/hierarchy-types"),headers=auth,json={
+    type_id=client.post(url("/codes/PEN/hierarchy-types"),headers=auth,json={
         "name":"Дополнительный раздел","allowed_parents":["ROOT"],
         "level_order":1}).json()["id"]
-    parent=client.post(url("/codes/demo-penal/nodes"),headers=auth,json={
+    parent=client.post(url("/codes/PEN/nodes"),headers=auth,json={
         "type_id":type_id,"number":"3","title":"Новая группа"}).json()["id"]
     article=admin("806",parent="demo-intro")
     original=article["revision_id"]
@@ -112,9 +112,9 @@ def test_restore_can_choose_another_valid_node_location(client,headers,admin):
 
 def test_restore_nested_subtree_blocks_own_descendant(client,headers,admin):
     auth=headers["superadmin"]
-    kind=client.post(url("/codes/demo-penal/hierarchy-types"),headers=auth,json={
+    kind=client.post(url("/codes/PEN/hierarchy-types"),headers=auth,json={
         "name":"Вложенный тип","allowed_parents":["ROOT","demo-chapter"]}).json()["id"]
-    child=client.post(url("/codes/demo-penal/nodes"),headers=auth,json={
+    child=client.post(url("/codes/PEN/nodes"),headers=auth,json={
         "type_id":kind,"parent_id":"demo-intro","number":"2",
         "title":"Вложенный элемент"}).json()["id"]
     # Archive a root that contains the nested element; self-placement must fail.
@@ -149,11 +149,11 @@ def test_readonly_service_api_has_separate_auth_and_no_private_data(client,heade
     assert item["id"]=="demo-article-1"
     assert "criminal_class" in item and "sanctions" in item and "relations" in item
     assert "annotations" not in item and "audit_events" not in item
-    pages=client.get(url("/integration/articles"),params={"code_id":"demo-penal"},
+    pages=client.get(url("/integration/articles"),params={"code_id":"PEN"},
                      headers={"Authorization":"Bearer "+key})
     assert pages.status_code==200
     assert pages.json()["items"]
-    assert client.post(url("/articles"),json={"code_id":"demo-penal","number":"900"},
+    assert client.post(url("/articles"),json={"code_id":"PEN","number":"900"},
                        headers={"Authorization":"Bearer "+key}).status_code==401
 
 
@@ -176,7 +176,7 @@ def test_throttle_returns_429_and_security_headers(client,headers,monkeypatch):
 
 
 def test_csp_and_browser_permissions_restrict_untrusted_code(client,headers):
-    for path in ("/","/codes/demo-penal",url("/codes")):
+    for path in ("/","/codes/PEN",url("/codes")):
         response=client.get(path,headers=headers["user"])
         assert response.status_code==200,response.text
         csp=response.headers["Content-Security-Policy"]
@@ -212,7 +212,7 @@ def test_offline_backup_and_restore_are_verified(client,headers,tmp_path):
     assert saved.is_file()
     assert 2 in verify(saved)["schema_versions"]
     response=client.post(url("/articles"),headers=headers["superadmin"],json={
-        "code_id":"demo-penal","number":"916","title":"Временная статья",
+        "code_id":"PEN","number":"916","title":"Временная статья",
         "categories":["definition"]})
     assert response.status_code==200,response.text
     assert response.json()["id"]

@@ -1863,18 +1863,296 @@ h3 {
   }
 }
 /* Bill preparation uses the portal's typography and a readable document sheet. */
-.coauthor-picker { border: 1px solid var(--border, #ccc); padding: 16px; }
-.coauthor-picker .check-list { max-height: 220px; overflow-y: auto; }
-.coauthor-picker label[hidden] { display: none; }
-.article-parameters { border-top: 1px solid #ccc; padding-top: 16px; margin-top: 20px; }
-.article-parameters > summary { margin-bottom: 18px; font-weight: 600; }
-.article-parameters fieldset { min-width: 0; border: 1px solid #ccc; padding: 12px; }
-.relation-row, .candidate-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid #ddd; padding: 12px 0; }
-.candidate-row small { display: block; color: #666; }
-.relation-row span { overflow-wrap: anywhere; }
-.bill-paper { max-width: 820px; margin: 24px auto; padding: 40px 48px; border: 1px solid #ccc; background: #fff; box-shadow: 0 2px 7px #0000000d; }
-.bill-paper h2 { text-align: center; margin-bottom: 32px; }
-.bill-paper h3 { margin-top: 28px; font-family: inherit; font-size: 1em; font-weight: 700; }
-.change-row input, .change-row select { max-width: 100%; }
-.change-row .compare-grid textarea { min-height: 200px; }
-@media (max-width: 600px) { .bill-paper { padding: 24px 18px; } .relation-row { align-items: flex-start; } }
+.coauthor-picker {
+  border: 1px solid var(--border, #ccc);
+  padding: 16px;
+}
+.coauthor-picker .check-list {
+  max-height: 220px;
+  overflow-y: auto;
+}
+.coauthor-picker label[hidden] {
+  display: none;
+}
+.article-parameters {
+  border-top: 1px solid #ccc;
+  padding-top: 16px;
+  margin-top: 20px;
+}
+.article-parameters > summary {
+  margin-bottom: 18px;
+  font-weight: 600;
+}
+.article-parameters fieldset {
+  min-width: 0;
+  border: 1px solid #ccc;
+  padding: 12px;
+}
+.relation-row,
+.candidate-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid #ddd;
+  padding: 12px 0;
+}
+.candidate-row small {
+  display: block;
+  color: #666;
+}
+.relation-row span {
+  overflow-wrap: anywhere;
+}
+.bill-paper {
+  max-width: 820px;
+  margin: 24px auto;
+  padding: 40px 48px;
+  border: 1px solid #ccc;
+  background: #fff;
+  box-shadow: 0 2px 7px #0000000d;
+}
+.bill-paper h2 {
+  text-align: center;
+  margin-bottom: 32px;
+}
+.bill-paper h3 {
+  margin-top: 28px;
+  font-family: inherit;
+  font-size: 1em;
+  font-weight: 700;
+}
+.change-row input,
+.change-row select {
+  max-width: 100%;
+}
+.change-row .compare-grid textarea {
+  min-height: 200px;
+}
+@media (max-width: 600px) {
+  .bill-paper {
+    padding: 24px 18px;
+  }
+  .relation-row {
+    align-items: flex-start;
+  }
+}
+.document-text .bill-document-header {
+  margin: 0 0 30px;
+  font-family: Arial, sans-serif;
+  font-size: 0.9em;
+}
+.document-text .document-date,
+.document-text .document-legislature,
+.document-text .document-authors {
+  text-align: center;
+  margin: 22px 0;
+}
+.document-text .document-number {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  margin-top: 32px;
+}
+.document-text .document-number strong:last-child {
+  white-space: nowrap;
+}
+.document-text hr {
+  border: 0;
+  border-top: 1px solid #666;
+  margin: 12px 0 20px;
+}
+.document-text .document-attributes {
+  line-height: 1.8;
+}
+.document-text .document-body-title {
+  text-align: left;
+  font-family: Arial, sans-serif;
+  font-size: 1.3em;
+  font-weight: 700;
+  margin: 16px 0 24px;
+}
+.document-text .document-preamble,
+.document-text .resolution-body {
+  white-space: pre-wrap;
+}
+.document-text .document-preamble p,
+.document-text .resolution-body p {
+  margin: 0;
+  min-height: 1.6em;
+}
+.document-text .enacting-clause {
+  margin: 28px 0;
+}
+.rich-editor p,
+.rich-editor div {
+  min-height: 1.6em;
+}
+.document-attribute-controls,
+.filter-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+}
+.document-attribute-controls label,
+.filter-toggles label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.agenda-filters {
+  background: #f2f2f2;
+  padding: 26px;
+  border-radius: 4px;
+  margin: 22px 0 30px;
+}
+.agenda-filters .form-grid {
+  grid-template-columns: 1fr 1fr 2fr;
+}
+.agenda-filters .filter-toggles {
+  margin: 20px 0;
+}
+.agenda-filter-summary {
+  padding: 14px 18px;
+  background: #f6f5f9;
+  border-left: 4px solid #a30c1f;
+  font-weight: 600;
+}
+.agenda-day {
+  margin: 20px 0 32px;
+  border: 1px solid #ccc;
+}
+.agenda-day > h2 {
+  background: #a30c1f;
+  color: white;
+  padding: 18px;
+  margin: 0;
+  font-size: 1.15em;
+}
+.agenda-day > div {
+  padding: 24px;
+}
+.session-list-card {
+  border: 1px solid #ccc;
+  background: #fafafa;
+  margin-bottom: 20px;
+}
+.session-list-card:last-child {
+  margin-bottom: 0;
+}
+.session-list-card > h3 {
+  color: #a30c1f;
+  margin: 0;
+  background: #f1f1f1;
+  border-bottom: 1px solid #ccc;
+  padding: 16px;
+  text-transform: uppercase;
+  font-family: inherit;
+  font-weight: 600;
+}
+.session-card-body {
+  padding: 0 16px 16px;
+}
+.session-card-body h4 {
+  font-family: inherit;
+  font-weight: 600;
+}
+.venue-address {
+  white-space: pre-line;
+}
+.agenda-paper {
+  background: #f4f4f4;
+  border: 1px solid #ddd;
+  padding: 24px 32px;
+  margin: 20px 0;
+}
+.agenda-public-header {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 26px;
+}
+.agenda-subjects {
+  padding-left: 24px;
+}
+.agenda-subjects li {
+  padding: 12px 0;
+}
+.agenda-subjects small {
+  display: block;
+  color: #666;
+}
+.agenda-subjects .status {
+  margin-left: 14px;
+}
+.discussion-editor {
+  margin: 28px 0;
+}
+.discussion-field {
+  border: 1px solid #ccc;
+  padding: 20px;
+  margin-bottom: 16px;
+}
+.discussion-field header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.discussion-field h4 {
+  margin-top: 0;
+}
+.status.cancelled {
+  background: #eee;
+  color: #555;
+}
+.status.postponed {
+  background: #fff4d6;
+  color: #755000;
+}
+#agendaViewer {
+  max-width: min(900px, calc(100vw - 32px));
+  width: min(900px, calc(100vw - 32px));
+  max-height: 90vh;
+  border: 1px solid #bbb;
+  padding: 20px;
+}
+#agendaViewer::backdrop {
+  background: #0008;
+}
+#agendaViewer > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  border-bottom: 1px solid #ccc;
+}
+#agendaViewer h2 {
+  margin: 0 0 12px;
+  color: #333;
+  font:
+    600 1em "Open Sans",
+    sans-serif;
+  text-transform: uppercase;
+}
+#agendaViewer .agenda-paper {
+  margin: 12px 0 20px;
+}
+@media (max-width: 650px) {
+  .agenda-filters {
+    padding: 18px;
+  }
+  .agenda-filters .form-grid {
+    grid-template-columns: 1fr;
+  }
+  .agenda-day > div {
+    padding: 12px;
+  }
+  .agenda-paper {
+    padding: 20px 16px;
+  }
+  .document-text .document-number {
+    gap: 12px;
+    font-size: 0.9em;
+  }
+}
