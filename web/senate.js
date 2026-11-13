@@ -1989,7 +1989,9 @@
           code_id: a.code_id,
           code_name: a.code_name,
           code_abbreviation: a.code_abbreviation,
-          ...(a.is_node ? { node_id: a.id } : { article_id: a.id }),
+          ...(a.is_node
+            ? { node_id: a.id }
+            : { article_id: a.id, revision_id: a.revision_id }),
           number: a.number,
         },
         article: {

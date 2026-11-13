@@ -181,8 +181,7 @@ def _detail(c, session_id, current=None):
     result['discussions'] = allrows(c, 'SELECT * FROM senate_session_discussions WHERE session_id=? ORDER BY position', (session_id,))
     result["items"] = _current_items(c, session_id)
     hidden = session['status'] in {'draft', 'published', 'cancelled'}
-    electorate = maybe(c, 'SELECT is_lieutenant FROM senate_session_electorate WHERE session_id=? AND user_id=?',
-                       (session_id, current['id'] if current else 'guest'))
+    electorate = eligible_voter(c, session_id, current)
     result['can_vote'] = electorate is not None
     result['results_hidden'] = hidden
     for item in result["items"]:
@@ -395,6 +394,17 @@ def _open_session(c, session_id):
     return session
 
 
+def eligible_voter(c, session_id, current):
+    """The published electorate fixes membership, not permission after revocation."""
+    if not current:
+        return None
+    voter = maybe(c, "SELECT * FROM senate_session_electorate WHERE session_id=? AND user_id=?",
+                  (session_id, current['id']))
+    if voter and has_flag(c, current, 'lieutenant_governor' if voter['is_lieutenant'] else 'senator'):
+        return voter
+    return None
+
+
 @router.post("/sessions/{session_id}/votes")
 def cast_vote(session_id: str, body: dict, current=Depends(senate_actor)):
     choice, bill_id = body.get("choice"), body.get("bill_id")
@@ -404,7 +414,7 @@ def cast_vote(session_id: str, body: dict, current=Depends(senate_actor)):
         fail(422, "INVALID_BILL", "Укажите идентификатор предмета.")
     with transaction() as c:
         _open_session(c, session_id)
-        voter = maybe(c, "SELECT * FROM senate_session_electorate WHERE session_id=? AND user_id=?", (session_id, current["id"]))
+        voter = eligible_voter(c, session_id, current)
         if not voter:
             fail(403, "NOT_IN_ELECTORATE", "Вы не входите в состав голосующих этого заседания.")
         item = one(c, "SELECT * FROM senate_session_items WHERE session_id=? AND bill_id=?", (session_id, bill_id))
@@ -433,7 +443,8 @@ def _cast_choice(c, session_id, item, choice, current):
 def restore_presence(session_id: str, current=Depends(senate_actor)):
     with transaction() as c:
         _open_session(c, session_id)
-        one(c, "SELECT * FROM senate_session_electorate WHERE session_id=? AND user_id=?", (session_id, current["id"]))
+        if not eligible_voter(c, session_id, current):
+            fail(403, 'NOT_IN_ELECTORATE', 'У вас нет действующего права голосовать в этом заседании.')
         previous = allrows(c, """SELECT vc.* FROM vote_choices vc JOIN votes v ON v.id=vc.vote_id
             WHERE v.session_id=? AND vc.voter_id=?""", (session_id, current["id"]))
         if not previous or any(row["choice"] != "absent" for row in previous):
