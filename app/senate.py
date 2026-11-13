@@ -281,10 +281,31 @@ def article_parameters(c, article):
     return result
 
 
-def validate_changes(c, raw):
+def article_source(c, article, revision_id):
+    if revision_id == article['revision_id']:
+        return article_parameters(c, article)
+    revision = maybe(c, 'SELECT * FROM article_revisions WHERE id=? AND article_id=?',
+                     (revision_id, article['id']))
+    if not revision:
+        fail(422, 'INVALID_SOURCE_REVISION', 'Исходная редакция не принадлежит выбранной статье.')
+    snapshot = dict(article)
+    for key in ('number', 'title', 'text_rich', 'categories_json', 'criminal_class', 'custom_values'):
+        snapshot[key] = revision[key]
+    snapshot.update(revision_id=revision_id, updated_at=revision['published_at'],
+                    categories=loads(revision['categories_json'], []),
+                    custom_values=loads(revision['custom_values'], {}),
+                    sanctions=loads(revision['sanctions_json'], {}),
+                    relations=loads(revision['relations_json'], []))
+    snapshot.update(snapshot['sanctions'])
+    return snapshot
+
+
+def validate_changes(c, raw, previous=()):
     if not isinstance(raw, list) or len(raw) > 200:
         fail(422, 'INVALID_CHANGES', 'Список изменений должен содержать не более 200 положений.')
     changes, targets = [], set()
+    previous_targets = {p['target'].get('article_id') or p['target'].get('node_id'): p
+                        for p in previous if p['operation'] != 'add'}
     for change in raw:
         if not isinstance(change, dict) or change.get('operation') not in {'add', 'amend', 'repeal'}:
             fail(422, 'INVALID_CHANGE', 'Выберите добавление, изменение или отмену.')
@@ -302,9 +323,20 @@ def validate_changes(c, raw):
                 fail(422, 'DUPLICATE_TARGET', 'Одно положение не может быть изменено дважды в одной редакции.')
             targets.add(target_id)
             snapshot = one(c, f"SELECT * FROM {table} WHERE id=? AND status='active'", (target_id,))
+            code_id = snapshot['code_id']
+            prior = previous_targets.get(target_id)
+            revision_id = target.get('revision_id')
+            if revision_id is not None and (not isinstance(revision_id, str) or not revision_id):
+                fail(422, 'INVALID_SOURCE_REVISION', 'Укажите идентификатор исходной редакции статьи.')
             if article_id:
-                snapshot = article_parameters(c, snapshot)
-            target = {'code_id': snapshot['code_id'], 'article_id' if article_id else 'node_id': target_id,
+                revision_id = revision_id or (prior['target'].get('revision_id') if prior else None)
+                if prior and revision_id == prior['target'].get('revision_id'):
+                    snapshot = prior['source']
+                else:
+                    snapshot = article_source(c, snapshot, revision_id or snapshot['revision_id'])
+            elif prior:
+                snapshot = prior['source']
+            target = {'code_id': code_id, 'article_id' if article_id else 'node_id': target_id,
                       'revision_id': snapshot.get('revision_id'), 'number': snapshot['number'], 'parent_id': snapshot['parent_id']}
         else:
             code_id = target.get('code_id') or change.get('code_id')
@@ -403,7 +435,8 @@ def validate_bill(c, body, old=None):
             fail(422, 'INVALID_DATE', 'Укажите корректную дату вступления в силу.')
     if effective_rule == 'specified_date' and not effective:
         fail(422, 'EFFECTIVE_DATE_REQUIRED', 'Выберите дату применения акта.')
-    changes = validate_changes(c, body['changes']) if 'changes' in body else (old['changes'] if old else [])
+    changes = (validate_changes(c, body['changes'], old['changes'] if old else ())
+               if 'changes' in body else (old['changes'] if old else []))
     if document_type in RESOLUTIONS and changes:
         fail(422, 'RESOLUTION_CHANGES_FORBIDDEN', 'Резолюция не изменяет статьи кодексов. Уберите блоки изменений или выберите законопроект.')
     category_row = one(c, 'SELECT * FROM senate_categories WHERE id=?', (category,))

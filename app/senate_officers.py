@@ -45,7 +45,7 @@ def _election(c, election_id):
 
 
 def election_detail_in_db(c, election_id, current=None):
-    from app.senate_sessions import visible_session
+    from app.senate_sessions import visible_session, eligible_voter
     row = _election(c, election_id)
     if row['status'] == 'draft':
         from app.senate_sessions import can_manage_sessions
@@ -59,7 +59,8 @@ def election_detail_in_db(c, election_id, current=None):
     row.update(kind='election', candidates=candidates, my_choice=mine, results_hidden=hidden,
         choices=[] if hidden else choices,
         tally=None if hidden else [{'candidate_id': candidate['id'], 'count': count[candidate['id']]} for candidate in candidates])
-    row['can_vote'] = bool(current and maybe(c, 'SELECT 1 FROM senate_session_electorate WHERE session_id=? AND user_id=? AND is_lieutenant=0', (row['session_id'], current['id'])))
+    voter = eligible_voter(c, row['session_id'], current)
+    row['can_vote'] = bool(voter and not voter['is_lieutenant'])
     if hidden:
         row['winner_id'] = None
     return visible_session(c, row, current)
@@ -148,15 +149,15 @@ def election_detail(election_id: str, current=Depends(optional_senate_actor)):
 
 @router.post('/elections/{election_id}/votes')
 def election_vote(election_id: str, body: dict, current=Depends(senate_actor)):
-    from app.senate_sessions import _open_session, _cast_choice
+    from app.senate_sessions import _open_session, _cast_choice, eligible_voter
     candidate = body.get('candidate_id')
     with transaction() as c:
         election = _election(c, election_id)
         if not election['session_id']:
             fail(409, 'NOT_PUBLISHED', 'Вопрос ещё не включён в опубликованную повестку.')
         _open_session(c, election['session_id'])
-        voter = maybe(c, 'SELECT * FROM senate_session_electorate WHERE session_id=? AND user_id=? AND is_lieutenant=0', (election['session_id'], current['id']))
-        if not voter:
+        voter = eligible_voter(c, election['session_id'], current)
+        if not voter or voter['is_lieutenant']:
             fail(403, 'NOT_IN_ELECTORATE', 'Голосуют сенаторы из опубликованного состава.')
         if not isinstance(candidate, str) or candidate not in {r['id'] for r in loads(election['candidates_json'], [])} | {'abstain', 'absent'}:
             fail(422, 'INVALID_CANDIDATE', 'Выберите кандидата, воздержание или отсутствие.')
